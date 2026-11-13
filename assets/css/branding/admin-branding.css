@@ -79,9 +79,9 @@ body.wp-admin {
 }
 
 body.login {
-    min-height: 100dvh;
     height: auto !important;
     min-height: 100vh;
+    min-height: 100dvh;
     background:
         radial-gradient(circle at top right, var(--dg-overlay-a), transparent 28%),
         radial-gradient(circle at 12% 18%, var(--dg-overlay-b), transparent 24%),
@@ -90,6 +90,16 @@ body.login {
     background-repeat: no-repeat;
     background-size: cover;
     overflow-x: hidden;
+}
+
+body.login:has(.dg-digits-login-shell) {
+    display: flex;
+    flex-direction: column;
+}
+
+body.login:has(.dg-digits-login-shell) #login {
+    margin-block: auto;
+    padding-block: clamp(16px, 3vh, 32px);
 }
 
 body.login::before,
@@ -1073,7 +1083,7 @@ body.login .dg-digits-login-shell .dg-skip-password:focus-visible {
 body.login .dg-passkey-options {
     margin-block: 14px 0;
     color: var(--dg-text-soft);
-    font-size: 14px;
+    font: 500 14px/1.65 var(--dg-font, system-ui, sans-serif);
     text-align: center;
 }
 
@@ -1085,11 +1095,13 @@ body.login .dg-passkey-options summary {
     cursor: pointer;
 }
 
-body.login .dg-digits-login-shell .dg-passkey-options[open] > .digits-form_passwordless_login {
+body.login .dg-digits-login-shell .dg-passkey-options[open] > .digits-form_passwordless_login,
+body.login .dg-digits-login-shell .dg-passkey-options .digitalogic-call-toggle {
     display: block !important;
-    width: fit-content;
+    box-sizing: border-box;
+    width: 100%;
     min-height: 44px;
-    margin: 4px auto 0;
+    margin: 8px 0 0;
     padding: 8px 16px;
     border: 1px solid var(--dg-border-strong);
     border-radius: 14px;
@@ -1099,9 +1111,52 @@ body.login .dg-digits-login-shell .dg-passkey-options[open] > .digits-form_passw
     cursor: pointer;
 }
 
-body.login .dg-digits-login-shell form:not(.digits_form_index_section) .dg-passkey-options,
-body.login .dg-digits-login-shell form.dg-username-step-active .dg-passkey-options {
-    display: none;
+body.login .dg-digits-login-shell form:not(.digits_form_index_section) .dg-passkey-options[open] > .digits-form_passwordless_login,
+body.login .dg-digits-login-shell form.dg-username-step-active .dg-passkey-options[open] > .digits-form_passwordless_login,
+body.login .dg-digits-login-shell form:not(.digits_form_index_section) .dg-passkey-options:not(:has(.digitalogic-call-verification)),
+body.login .dg-digits-login-shell form.dg-username-step-active .dg-passkey-options:not(:has(.digitalogic-call-verification)) {
+    display: none !important;
+}
+
+body.login .dg-digits-login-shell .dg-passkey-options .digitalogic-call-verification {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    text-align: start;
+}
+
+body.login .dg-digits-login-shell .dg-passkey-options :is(.digitalogic-call-toggle, .digits-form_passwordless_login):hover {
+    border-color: var(--dg-accent);
+    background: var(--dg-panel-strong);
+}
+
+body.login .dg-digits-login-shell .digitalogic-call-panel:not([hidden]) {
+    margin-block-start: 8px;
+    padding: 14px;
+    border: 1px solid var(--dg-border);
+    border-radius: 16px;
+    background: var(--dg-panel-soft);
+    color: var(--dg-text);
+}
+
+body.login .dg-digits-login-shell .digitalogic-call-panel input[type="tel"] {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 46px;
+    margin: 0;
+}
+
+body.login .dg-digits-login-shell .digitalogic-call-panel [data-call-start] {
+    min-height: 44px;
+    white-space: normal;
+}
+
+body.login .dg-digits-login-shell .digitalogic-call-instructions {
+    border-inline-start-color: var(--dg-accent);
+    border-radius: 12px;
+    background: var(--dg-panel);
 }
 
 body.login .dg-digits-login-shell .dg-otp-editor {
@@ -1200,7 +1255,8 @@ body.login .dg-digits-login-shell .dg-otp-resend {
     background: linear-gradient(var(--dg-panel), var(--dg-panel)) padding-box,
         conic-gradient(var(--dg-accent-strong) var(--dg-resend-progress, 0%), var(--dg-border-strong) 0) border-box;
     color: var(--dg-accent-strong);
-    font-weight: 700;
+    font: 700 14px/1.65 var(--dg-font, system-ui, sans-serif);
+    text-decoration: none;
 }
 
 body.login .dg-digits-login-shell .dg-otp-resend[aria-disabled="true"] {

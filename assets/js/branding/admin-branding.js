@@ -3210,23 +3210,48 @@
             }
         });
         document.querySelectorAll('.dg-digits-login-shell form').forEach(prepareDigitsSkipPassword);
-        document.querySelectorAll('.dg-digits-login-shell .digits-form_passwordless_login').forEach(function (button) {
-            if (button.closest('.dg-passkey-options')) {
-                return;
-            }
-            var disclosure = document.createElement('details');
+        mountLoginAlternatives();
+        normalizeDigitsLoginFallback();
+        normalizeRecoveryIdentity();
+        prepareDigitsRegistrationAutofill();
+    }
+
+    function mountLoginAlternatives() {
+        var form = document.querySelector('.dg-digits-login-shell .digits-form_login');
+        if (!form) {
+            return;
+        }
+
+        var call = document.querySelector('#digitalogic-login-call-toggle');
+        var widget = call && call.closest('[data-digitalogic-call-widget]');
+        var passkey = form.querySelector('.digits-form_passwordless_login');
+        var disclosure = form.querySelector('.dg-passkey-options');
+        if (!disclosure && (passkey || widget)) {
+            disclosure = document.createElement('details');
             disclosure.className = 'dg-passkey-options';
             var summary = document.createElement('summary');
             summary.textContent = getLabel('passkeyOptions', 'Other sign-in options');
             disclosure.appendChild(summary);
-            button.before(disclosure);
-            button.type = 'button';
-            button.textContent = getLabel('passkeyLogin', 'Sign in with a passkey');
-            disclosure.appendChild(button);
-        });
-        normalizeDigitsLoginFallback();
-        normalizeRecoveryIdentity();
-        prepareDigitsRegistrationAutofill();
+            form.appendChild(disclosure);
+        }
+
+        if (passkey && passkey.parentElement !== disclosure) {
+            passkey.type = 'button';
+            passkey.textContent = getLabel('passkeyLogin', 'Sign in with a passkey');
+            disclosure.appendChild(passkey);
+        }
+        if (widget && widget.parentElement !== disclosure) {
+            disclosure.appendChild(widget);
+            var phone = widget.querySelector('[data-call-phone]');
+            // The call controller submits this field independently of the Digits form.
+            phone.setAttribute('form', 'digitalogic-call-verification-form');
+            widget.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter' && event.target.matches('[data-call-phone]')) {
+                    event.preventDefault();
+                    widget.querySelector('[data-call-start]').click();
+                }
+            });
+        }
     }
 
     function observeAuthChrome() {
