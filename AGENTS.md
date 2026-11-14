@@ -1,7 +1,7 @@
 # Digitalogic authentication
 
 - Keep username, email, and mobile on one visible sign-in field in the branded card. Digits can keep separate provider inputs internally. On every entry URL and after switching forms, show only the active field and one Remember me control in its own row.
-- On the passwordless contact step, ask only for email or phone in both the placeholder and accessible name. Restore the username option when the user returns to sign-in.
+- Keep the placeholder and accessible name in sync with the identity mode. Show «شماره تلفن» when the user enters a phone number. An empty passwordless contact field asks for email or phone. Restore the general prompt on return to an empty sign-in field.
 - Keep sign-in, signup, and password recovery in the same card. A new mobile identity must flow into native Digits signup and OTP confirmation without an extra “Not a member yet?” prompt. Show the optional new-password dialog only after successful verification establishes a session. Skipping the dialog must resume the original destination.
 - Put account actions beside the form they affect. Keep the passkey action under other sign-in methods. Use one divider style for “Or” and “Or continue with.” Align field icons to the input direction, including LTR phone, email, and password fields on Persian pages.
 - Verify the rendered Persian mobile flow as well as the default login URL. Cover direct signup and recovery links, in-card navigation, the unregistered mobile handoff, OTP verification, and return navigation. Distinguish simulated provider responses from real SMS or a completed sign-in when reporting verification.
