@@ -39,8 +39,8 @@ Keep the existing per-site base64 HMAC key in its root-owned, non-symlinked
 secret file. If rotation is required, provision the new key in WordPress first,
 then switch PBX and server key IDs atomically. Never place the key in the env file.
 
-Verify both paths and both contexts exactly. `PBX_PENDING_HTTP_TIMEOUT_MS=1500`
-is intentional: a WordPress outage must not delay ordinary callers for four seconds.
+Verify both paths and both contexts exactly. `PBX_PENDING_HTTP_TIMEOUT_MS=3000`
+allows for WordPress startup latency while bounding the delay for ordinary callers.
 
 ## 3. Generate BGM-mixed Persian prompts
 
