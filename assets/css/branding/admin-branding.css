@@ -1337,6 +1337,7 @@ body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .dg-otp-editor
 }
 
 body.login .dg-otp-slot {
+    --dg-otp-font: 700 clamp(20px, 5vw, 28px)/1 var(--dg-auth-digits, var(--dg-font, system-ui));
     display: block;
     position: relative;
     min-width: 0;
@@ -1357,7 +1358,7 @@ body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .dg-otp-editor
     border-radius: 14px !important;
     background: var(--dg-input-bg) !important;
     color: var(--dg-text) !important;
-    font: 700 clamp(20px, 5vw, 28px)/1 var(--dg-auth-digits, var(--dg-font, system-ui)) !important;
+    font: var(--dg-otp-font) !important;
     font-variant-numeric: tabular-nums !important;
     text-align: center;
     direction: ltr;
@@ -1407,8 +1408,62 @@ body.login .dg-otp-slot:has(input:focus:placeholder-shown)::after {
     to { opacity: .18; }
 }
 
+body.login [data-dg-otp-cursor="bar"] .dg-otp-slot:has(input:focus:placeholder-shown)::after {
+    inset-block-end: auto;
+    inset-block-start: 50%;
+    inline-size: 16px;
+    block-size: 3px;
+    border: 0;
+    border-radius: 2px;
+    background: var(--dg-accent-strong);
+    transform: translateY(-50%);
+    animation: dg-otp-bar-pulse 1.35s ease-in-out infinite;
+}
+
+@keyframes dg-otp-bar-pulse {
+    0%, 22%, 100% { opacity: 1; }
+    55%, 65% { opacity: 0; }
+}
+
+.dg-otp-roll {
+    display: none;
+}
+
+@media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+    body.login [data-dg-otp-cursor="bar"] .dg-otp-roll {
+        position: absolute;
+        inset: 1px;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        border-radius: 13px;
+        color: var(--dg-text);
+        font: var(--dg-otp-font);
+        font-variant-numeric: tabular-nums;
+        pointer-events: none;
+    }
+
+    body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) [data-dg-otp-cursor="bar"] .dg-otp-slot input:has(+ .dg-otp-roll),
+    body.login [data-dg-otp-cursor="bar"] .dg-otp-slot input:has(+ .dg-otp-roll)::selection {
+        color: transparent !important;
+    }
+
+    body.login .dg-otp-roll > span {
+        grid-area: 1 / 1;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
-    body.login .dg-otp-slot:has(input:focus:placeholder-shown)::after {
+    body.login .dg-otp-slot:has(input:focus:placeholder-shown)::after,
+    body.login [data-dg-otp-cursor="bar"] .dg-otp-slot:has(input:focus:placeholder-shown)::after {
+        animation: none;
+    }
+}
+
+@media (forced-colors: active) {
+    body.login [data-dg-otp-cursor="bar"] .dg-otp-slot:has(input:focus:placeholder-shown)::after {
+        background: CanvasText;
+        forced-color-adjust: none;
         animation: none;
     }
 }

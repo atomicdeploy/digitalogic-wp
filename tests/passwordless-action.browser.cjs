@@ -109,6 +109,7 @@ async function render(page, direction, labels, native, search = '') {
     await page.evaluate(labels => {
         window.DigitalogicBranding = {
             labels,
+            otpCursor: 'bar',
             ajaxUrl: '/email-domain',
             emailDomainNonce: 'fixture',
             rememberedAccounts: [{ login: 'known-user', avatar: '/known-avatar.svg' }]
@@ -344,6 +345,36 @@ async function checkOtpEditor(page, channel) {
     assert.ok(centers.every((left, index) => index === 0 || left - centers[index - 1] >= 20), 'All six digits have separate positions');
     assert.ok(await cells.evaluateAll(elements => elements.every(element => parseFloat(getComputedStyle(element).borderTopWidth) >= 1)), 'Every empty OTP cell has a visible outline');
     await cells.first().focus();
+    const form = page.locator('form.digloginpage');
+    const firstSlot = page.locator('.dg-otp-slot').first();
+    const cursor = () => firstSlot.evaluate(slot => {
+        const style = getComputedStyle(slot, '::after');
+        return { animation: style.animationName, height: style.height };
+    });
+    assert.equal(await form.getAttribute('data-dg-otp-cursor'), 'bar');
+    assert.deepEqual(await cursor(), { animation: 'dg-otp-bar-pulse', height: '3px' });
+    await form.evaluate(element => { element.dataset.dgOtpCursor = 'circle'; });
+    assert.deepEqual(await cursor(), { animation: 'dg-otp-caret', height: '12px' });
+    await form.evaluate(element => { element.dataset.dgOtpCursor = 'bar'; });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    assert.deepEqual(await cursor(), { animation: 'none', height: '3px' });
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    const entry = await cells.first().evaluate(cell => {
+        cell.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: '۱', cancelable: true }));
+        const roll = cell.nextElementSibling;
+        return [cell.value, roll?.textContent, roll?.getAttribute('aria-hidden'), roll?.firstElementChild?.getAnimations().length];
+    });
+    assert.deepEqual(entry, ['1', '1', 'true', 1]);
+    await firstSlot.locator('.dg-otp-roll').waitFor({ state: 'detached' });
+    await cells.first().focus();
+    const replacement = await cells.first().evaluate(cell => {
+        cell.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: '۲', cancelable: true }));
+        return [cell.value, cell.nextElementSibling?.textContent];
+    });
+    assert.deepEqual(replacement, ['2', '12']);
+    await page.keyboard.press('Backspace');
+    assert.equal(await cells.first().inputValue(), '');
+    assert.equal(await firstSlot.locator('.dg-otp-roll').count(), 0);
     await page.keyboard.insertText('۱۲۳۴۵۶');
     assert.equal(await page.locator(`input[name="${channel}_otp"]`).inputValue(), '123456');
 }
