@@ -1517,13 +1517,8 @@
             }));
 
             step.querySelector('.dg-username-login-back').addEventListener('click', function () {
-                var password = step.querySelector('.dg-username-password-input');
-                password.value = '';
-                password.disabled = true;
-                password.type = 'password';
-                syncPasswordToggle(step.querySelector('.dg-username-password-toggle'), password);
-                step.hidden = true;
-                step.style.display = 'none';
+                // Digits counts every tab container when handling Back, including hidden ones.
+                step.remove();
                 delete form.dataset.dgUsernameStep;
                 form.classList.remove('dg-username-step-active');
                 showDigitsIdentityContainer(form);

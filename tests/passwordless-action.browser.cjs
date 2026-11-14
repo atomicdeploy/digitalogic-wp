@@ -189,6 +189,7 @@ async function checkOtpEditor(page, channel) {
                     await page.locator('.dg-auth-back').click();
                     await checkAlternatives(page, true);
                     assert.equal(await page.locator('.dg-auth-back').isVisible(), false);
+                    assert.equal(await page.locator('.digits-form_tab_container').count(), 1, 'Digits must have only the identity tab after returning');
                     await page.locator('input[name="digits_phone"]').fill('known-user');
                     await page.getByRole('button', { name: 'Continue', exact: true }).click();
                     await page.locator('.dg-skip-password:visible').click();
