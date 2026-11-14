@@ -1,5 +1,5 @@
 {
-  "observed_at_utc": "2026-11-14T09:21:11.186623+00:00",
+  "observed_at_utc": "2026-11-14T10:56:08.887517+00:00",
   "source_branch": "feat/mobile-storefront-api",
   "deployment": "targeted files; no full-plugin replacement",
   "schemas": {
@@ -22,7 +22,8 @@
     "POST /app-api/account/reauth/google/challenge": 401,
     "GET /app-api/account/merge/plan": 401,
     "GET /app-api/checkout": 401,
-    "GET /app-api/account/orders": 401
+    "GET /app-api/account/orders": 401,
+    "POST /app-api/checkout/quote": 401
   },
   "files": {
     "laravel/app/Services/MobileGoogleChallenge.php": {
@@ -34,7 +35,7 @@
       "matches_working_source": true
     },
     "laravel/app/Services/MobileIdentityStore.php": {
-      "deployed_sha256": "0f3db57d7ddbdb911af637f094e8c3fceee146f79a18235a27c6ee57838923af",
+      "deployed_sha256": "070a5757886e693c72266a2a19b634762a869522816438d6dd7012f91b411e4f",
       "matches_working_source": true
     },
     "laravel/app/Http/Controllers/MobileIdentityController.php": {
@@ -50,7 +51,7 @@
       "matches_working_source": true
     },
     "includes/integrations/class-digitalogic-mobile-api.php": {
-      "deployed_sha256": "e15135e3a4898768270ace1784aac10e9f973d9a23e18939096cd424743ed412",
+      "deployed_sha256": "8e0ecf406ae0e22b7cec5a623fb7f4ccc300b36132ce645777d269dca206e5cc",
       "matches_working_source": true
     },
     "laravel/app/Services/MobileMessages.php": {
@@ -130,7 +131,7 @@
       "matches_working_source": true
     },
     "laravel/app/Http/Controllers/MobileCheckoutController.php": {
-      "deployed_sha256": "5180b04c4fec1b8896613ede5e2bf8b0cba0d92ef893f940d33313bdb8268a5a",
+      "deployed_sha256": "ea9f4476012719f8174b41d5594c7e30d14f3ac35ceb3675988100fdf2b95b20",
       "matches_working_source": true
     },
     "laravel/app/Services/MobileWooCheckout.php": {
@@ -143,6 +144,14 @@
     },
     "laravel/app/Services/CatalogSearchPolicy.php": {
       "deployed_sha256": "2ceb95e0f46c43eb015773953547acc40000180008c357460dbdbe24e7e8271b",
+      "matches_working_source": true
+    },
+    "laravel/bootstrap/configure.php": {
+      "deployed_sha256": "a15afad2f42a725129d1b79f3a2e10910cd01030edfe01106eb5b3b02d63b860",
+      "matches_working_source": true
+    },
+    "laravel/app/Services/MobileCheckoutRequestAuth.php": {
+      "deployed_sha256": "7de2cad76324594a2dc4ecfeaa343ac52f25b11a71037e9e9744b5a67915c2e3",
       "matches_working_source": true
     }
   },
@@ -241,5 +250,44 @@
     "live_default_metadata_no_longer_blocked": true,
     "live_cart_baseline_unchanged": true,
     "customer_identity_changed_by_deploy": false
+  },
+  "checkout_authentication": {
+    "commit": "eab332f187eaa933a4f8143e076be756d0e459ca",
+    "archive_sha256": "b6fc3fa7d859de23954bf19c92e6806efaf77a26cac97ae8367c270858b71b19",
+    "backup": "/var/backups/digitalogic-checkout-request-auth.ukj_d3vm",
+    "supported_hook": "determine_current_user",
+    "provider": "Zero Spam 5.5.8, unchanged",
+    "isolated_fresh_bootstrap_scenarios": 11,
+    "isolated_assertions": 145,
+    "unit_tests": 14,
+    "unit_assertions": 117,
+    "evidence_sha256": "9209a91cb2594b2d9de2106c69e5c779084f4fc43849fc49578f2367de9d04e5",
+    "production_hashes_verified": true,
+    "ci": "https://github.com/atomicdeploy/digitalogic-wp/actions/runs/43587013544",
+    "ci_all_four_jobs": "success",
+    "provider_hooks_settings_or_browser_proof_changed": false,
+    "production_order_created_by_rollout": false
+  },
+  "quote_http_kernel": {
+    "commit": "1efc5b241a43aad3c557120d9f395d83ef03c812",
+    "isolated_assertions": 15,
+    "scope": "JSON native checkout quote only",
+    "handset_quote_http_status": 200
+  },
+  "handset_identity_acceptance": {
+    "confirmed_at_tehran": "2026-11-14T13:13:47+03:30",
+    "canonical_merge_operations": 1,
+    "survivor_google_and_phone_verified": true,
+    "source_sessions_retired": true,
+    "cart_lines_preserved": 2,
+    "cart_units_preserved": 3,
+    "native_profile_and_cart_adoption_http_status": 200
+  },
+  "handset_checkout_acceptance": {
+    "latest_attempt": "durably_rejected_before_order",
+    "reason": "provider initialized before native principal; supported early-auth fix now deployed",
+    "order_created": false,
+    "billing_geographic_baseline_unchanged": true,
+    "fresh_native_quote_and_submit": "pending user-authorized handset action"
   }
 }
