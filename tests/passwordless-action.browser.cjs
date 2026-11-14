@@ -73,11 +73,18 @@ async function render(page, direction, labels, native) {
     }));
     await page.goto('https://digitalogic.test/login/');
     await page.evaluate(labels => {
-        window.DigitalogicBranding = { labels };
+        window.DigitalogicBranding = {
+            labels,
+            rememberedAccounts: [{ login: 'known-user', avatar: '/known-avatar.svg' }]
+        };
         document.querySelector('[data-value="otp"]')?.addEventListener('click', () => {
             document.body.dataset.smsTabSelected = 'true';
         });
     }, labels);
+    await page.route('https://digitalogic.test/known-avatar.svg', route => route.fulfill({
+        contentType: 'image/svg+xml',
+        body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path fill="blue" d="M0 0h32v32H0z"/></svg>'
+    }));
     await page.addStyleTag({ path: styles });
     await page.addScriptTag({ path: branding });
     await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
@@ -116,6 +123,28 @@ async function checkOtpEditor(page, channel) {
                     await checkIconAndLabel(page.getByRole('button', { name: labels.passkeyLogin, exact: true }), direction);
                     await page.locator('input[name="digits_phone"]').fill('fixture-user');
                     await page.getByRole('button', { name: 'Continue', exact: true }).click();
+                    const profile = page.locator('.dg-username-login-summary');
+                    const avatar = profile.locator('.dg-username-login-avatar');
+                    assert.equal(await avatar.locator('img').count(), 0);
+                    assert.equal(await avatar.locator('svg').isVisible(), true);
+                    await page.locator('.dg-username-login-back').click();
+                    await page.locator('input[name="digits_phone"]').fill('known-user');
+                    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+                    await avatar.locator('img').waitFor();
+                    assert.equal(await avatar.locator('svg').isVisible(), false);
+                    const layout = await profile.evaluate(element => {
+                        const avatar = element.querySelector('.dg-username-login-avatar');
+                        const name = element.querySelector('.dg-username-login-value');
+                        const rect = avatar.getBoundingClientRect();
+                        const label = name.getBoundingClientRect();
+                        return {
+                            above: rect.bottom < label.top,
+                            centered: Math.abs((rect.left + rect.right - label.left - label.right) / 2) < 1,
+                            size: rect.width,
+                            radius: getComputedStyle(avatar).borderRadius
+                        };
+                    });
+                    assert.deepEqual(layout, { above: true, centered: true, size: 64, radius: '50%' });
                     const eye = page.locator('.dg-username-password-toggle');
                     const password = page.locator('.dg-username-password-input');
                     await password.fill('layout-test');
