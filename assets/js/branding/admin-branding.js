@@ -1377,7 +1377,7 @@
         action.className = 'dg-passwordless-action';
 
         var button = document.createElement('button');
-        button.className = 'dg-skip-password';
+        button.className = 'dg-skip-password dg-icon-label-action';
         button.type = 'button';
         button.setAttribute('aria-describedby', captionId);
         button.addEventListener('click', onClick);
@@ -3977,7 +3977,6 @@
         var selectors = {
             '.digits-form_heading:not([data-call-code-title])': 'user',
             '.dg-passkey-options summary': 'more',
-            '.dg-passkey-options .digits-form_passwordless_login': 'key',
             '.dg-passkey-options .digitalogic-call-toggle, [data-call-start]': 'phone',
             '.dg-otp-resend': 'sms',
             '.digits-form_button_ic': 'arrow'
@@ -4143,7 +4142,11 @@
 
         if (passkey && passkey.parentElement !== disclosure) {
             passkey.type = 'button';
-            passkey.textContent = getLabel('passkeyLogin', 'Sign in with a passkey');
+            passkey.classList.add('dg-icon-label-action');
+            var label = document.createElement('span');
+            label.textContent = getLabel('passkeyLogin', 'Sign in with a passkey');
+            passkey.replaceChildren(label);
+            putAuthIcon(passkey, 'key');
             disclosure.appendChild(passkey);
         }
     }

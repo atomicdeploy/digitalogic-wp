@@ -1080,7 +1080,6 @@ body.login .dg-digits-login-shell .dg-passwordless-action > .dg-skip-password {
     display: flex;
     align-items: center;
     justify-content: center;
-    column-gap: 10px;
     box-sizing: border-box;
     inline-size: 100%;
     min-block-size: 56px;
@@ -1872,12 +1871,14 @@ body.login .dg-digits-login-shell .dg-passkey-options[open] > .digits-form_passw
     background: var(--dg-panel-soft) !important;
     color: var(--dg-text) !important;
     box-shadow: none !important;
-    position: relative;
 }
-body.login .dg-digits-login-shell .dg-passkey-options > .digits-form_passwordless_login > .dg-auth-icon {
-    position: absolute;
-    inset-inline-start: 18px;
-    inset-block-start: calc(50% - 10px);
+body.login .dg-digits-login-shell .dg-icon-label-action {
+    align-items: center;
+    justify-content: center;
+    column-gap: 10px;
+}
+body.login .dg-digits-login-shell .dg-icon-label-action > .dg-auth-icon {
+    position: static;
 }
 body.login .dg-digits-login-shell .dg-passkey-options[open] > .digits-form_passwordless_login:hover {
     border-color: var(--dg-border-strong) !important;
@@ -2149,9 +2150,6 @@ body.login .dg-digits-login-shell .dg-passkey-options .digitalogic-call-toggle {
     line-height: 1.4 !important;
     background: var(--dg-panel-soft);
     white-space: normal;
-}
-body.login .dg-digits-login-shell .dg-passkey-options[open] > .digits-form_passwordless_login {
-    padding-inline: 42px !important;
 }
 body.login .dg-digits-login-shell form:not(.digits_form_index_section) .dg-passkey-options[open] > .digits-form_passwordless_login,
 body.login .dg-digits-login-shell form.dg-username-step-active .dg-passkey-options[open] > .digits-form_passwordless_login {

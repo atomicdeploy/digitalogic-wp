@@ -17,25 +17,29 @@ async function checkAction(page, labels, direction) {
     assert.equal(await page.getByRole('button', { name: labels.skipPasswordCaption, exact: true }).count(), 0);
     assert.equal(await page.getByRole('link', { name: labels.skipPasswordCaption, exact: true }).count(), 0);
 
+    assert.equal(await caption.evaluate(element => element.getBoundingClientRect().top > element.previousElementSibling.getBoundingClientRect().bottom), true);
+    await checkIconAndLabel(button, direction);
+    return button;
+}
+
+async function checkIconAndLabel(button, direction) {
     const layout = await button.evaluate(element => {
         const icon = element.querySelector('svg').getBoundingClientRect();
-        const label = element.querySelector('.dg-passwordless-label').getBoundingClientRect();
-        const caption = document.getElementById(element.getAttribute('aria-describedby')).getBoundingClientRect();
+        const label = element.querySelector(':scope > span').getBoundingClientRect();
         const button = element.getBoundingClientRect();
         return {
             gap: Math.max(icon.left - label.right, label.left - icon.right),
             centerDifference: Math.abs((icon.top + icon.bottom - label.top - label.bottom) / 2),
             iconOnRight: icon.left > label.left,
             iconWidth: icon.width,
-            captionBelow: caption.top > button.bottom
+            groupOffset: Math.abs((Math.min(icon.left, label.left) + Math.max(icon.right, label.right) - button.left - button.right) / 2)
         };
     });
-    assert.ok(layout.iconWidth >= 16, 'The SMS icon must be visible');
-    assert.ok(layout.gap >= 8, `Icon and text must be at least 8px apart (got ${layout.gap}px)`);
+    assert.ok(layout.iconWidth >= 16, 'The action icon must be visible');
+    assert.ok(layout.gap >= 8 && layout.gap <= 12, `Icon and text must be 8–12px apart (got ${layout.gap}px)`);
     assert.ok(layout.centerDifference < 1, 'Icon and text must share a vertical center');
+    assert.ok(layout.groupOffset < 1, 'Icon and text must be centered as a group');
     assert.equal(layout.iconOnRight, direction === 'rtl');
-    assert.equal(layout.captionBelow, true);
-    return button;
 }
 
 async function render(page, direction, labels, native) {
@@ -59,6 +63,7 @@ async function render(page, direction, labels, native) {
                   </div>` : ''}
                 </div>
                 <button class="digits-form_submit-btn" type="submit"><span class="digits-form_button-text">Continue</span></button>
+                <button class="digits-form_passwordless_login" type="button">Passkey</button>
               </div>
             </form></div></div></body></html>`
     }));
@@ -98,11 +103,13 @@ async function checkOtpEditor(page, channel) {
             ['rtl', 390, 'ورود بدون رمز عبور', 'فراموشی رمز عبور'],
             ['ltr', 1024, 'Sign in without a password', 'Forgot your password?']
         ]) {
-            const labels = { skipPassword, skipPasswordCaption };
+            const labels = { skipPassword, skipPasswordCaption, passkeyLogin: direction === 'rtl' ? 'ورود با کلید عبور' : 'Sign in with a passkey' };
             for (const native of [true, false]) {
                 const page = await browser.newPage({ viewport: { width, height: 800 } });
                 await render(page, direction, labels, native);
                 if (!native) {
+                    await page.locator('.dg-passkey-options summary').click();
+                    await checkIconAndLabel(page.getByRole('button', { name: labels.passkeyLogin, exact: true }), direction);
                     await page.locator('input[name="digits_phone"]').fill('fixture-user');
                     await page.getByRole('button', { name: 'Continue', exact: true }).click();
                 }
