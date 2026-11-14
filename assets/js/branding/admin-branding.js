@@ -568,7 +568,7 @@
             'body.login .dg-digits-login-shell.dg-digits-auto-identity:not([data-dg-identity="phone"]) .digits-form_countrycode{display:none!important;}',
             'body.login .dg-digits-login-shell :is(.digits-form_input_row, .digits-form_input){border-color:var(--dg-border)!important;border-radius:16px!important;color:var(--dg-text)!important;}',
             'body.login .dg-digits-login-shell .digits-form_input_row:not(.dg-username-password-row,.digits-form_rememberme){min-height:58px!important;margin-block:11px!important;padding-inline:14px!important;background:var(--dg-input-bg)!important;}',
-            'body.login .dg-digits-login-shell .digits-form_rememberme{display:flex!important;align-items:center!important;justify-content:flex-start!important;min-height:auto!important;height:auto!important;margin-block:4px 14px!important;padding:0!important;border:0!important;background:transparent!important;overflow:visible!important;}',
+            'body.login .dg-digits-login-shell .digits-form_rememberme{display:flex!important;align-items:center!important;justify-content:flex-start!important;min-height:auto!important;height:auto!important;margin-block:4px 24px!important;padding:0!important;border:0!important;background:transparent!important;overflow:visible!important;}',
             'body.login .dg-digits-login-shell .digits-form_rememberme :is(.digits-form_input,.dig_opt_mult_con,.dig_opt_mult,label,.dig_input_wrapper,.dig_input_wrapper>div){display:inline-flex!important;align-items:center!important;justify-content:flex-start!important;gap:10px!important;width:auto!important;min-height:0!important;margin:0!important;padding:0!important;border:0!important;background:transparent!important;line-height:1.35!important;}',
             'body.login .dg-digits-login-shell .digits-form_rememberme .dig_input_wrapper::before,body.login .dg-digits-login-shell .digits-form_rememberme .dig_input_wrapper::after,body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::before,body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::after,html[dir="rtl"] body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::before,html[dir="rtl"] body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::after{content:none!important;display:none!important;opacity:0!important;visibility:hidden!important;}',
             'body.login .dg-digits-login-shell .digits-form_input input:not(.digits_login_remember_me){min-height:48px!important;margin:0!important;border:0!important;background:transparent!important;color:var(--dg-text)!important;box-shadow:none!important;font-family:var(--dg-font)!important;}',
@@ -581,9 +581,7 @@
             'body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me:checked::before{opacity:1;transform:rotate(45deg) scale(1);}',
             'body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me::after{content:none!important;display:none!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-mobile_wrapper{direction:ltr!important;}',
-            'body.login .dg-digits-login-shell.dg-digits-auto-identity:not([data-dg-identity="phone"]) .mobile_field{padding-inline-start:46px!important;padding-inline-end:16px!important;direction:ltr!important;text-align:left!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="email"] .digits-form_input_row:has(input[name="digits_email"]){direction:ltr!important;}',
-            'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="email"] input[name="digits_email"]{padding-inline-start:46px!important;padding-inline-end:16px!important;direction:ltr!important;text-align:left!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-mobile_wrapper{display:flex!important;align-items:center!important;gap:10px!important;width:100%!important;direction:ltr;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-mobile_wrapper:before{content:none!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-form_countrycode{position:relative!important;z-index:60!important;display:inline-flex!important;min-width:0!important;min-height:40px!important;justify-content:center!important;padding-inline:0 6px!important;border:0!important;border-inline-end:1px solid var(--dg-border)!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;}',
@@ -594,7 +592,7 @@
             'body.login .dg-digits-login-shell :is(.digits-form_button,.digits-form_submit,.digits-form_submit-btn).is-loading .digits-form_button_ic{display:none!important;inline-size:0!important;flex-basis:0!important;opacity:0!important;visibility:hidden!important;}',
             'body.login .dg-digits-login-shell .digits-social-logins-box{background:transparent!important;border-top:0!important;border-color:transparent!important;}',
             'body.login .dg-digits-login-shell .digits-social-btn{min-height:56px!important;padding:12px 18px!important;border-color:var(--dg-border)!important;border-radius:18px!important;background:var(--dg-panel)!important;color:var(--dg-text)!important;font-size:16px!important;}',
-            'body.login .dg-digits-login-shell .digits-social-btn:hover{transform:translateY(-1px)!important;border-color:var(--dg-border-strong)!important;background:var(--dg-panel-strong)!important;}'
+            'body.login .dg-digits-login-shell .digits-social-btn:hover{border-color:var(--dg-border-strong)!important;background:var(--dg-panel-strong)!important;}'
         ].join('\n');
         document.head.appendChild(style);
     }
@@ -630,6 +628,14 @@
         }
 
         return 'username';
+    }
+
+    function emailDomain(value) {
+        if (value.length > 254 || !/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(value)) {
+            return '';
+        }
+        var local = value.split('@', 1)[0];
+        return /(^\.|\.\.|\.$)/.test(local) ? '' : value.slice(local.length + 1).toLowerCase();
     }
 
     function phonePartsFromValue(value) {
@@ -1534,9 +1540,9 @@
             return false;
         }
 
-        if (classifyIdentity(value) === 'email') {
+        if (classifyIdentity(value) === 'email' && !emailDomain(value)) {
             var email = form.querySelector('[name="digits_email"]');
-            if (email && !/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i.test(value)) {
+            if (email) {
                 showDigitsInlineMessage(form, isPersianLocale() ? 'نشانی ایمیل معتبر وارد کنید.' : 'Enter a valid email address.', 'warning');
                 email.focus({ preventScroll: true });
                 return true;
@@ -2524,6 +2530,8 @@
             phoneInput.type = nextMode === 'phone' ? 'tel' : 'text';
             phoneInput.setAttribute('inputmode', nextMode === 'phone' ? 'tel' : 'text');
             phoneInput.setAttribute('autocomplete', nextMode === 'phone' ? 'tel-national' : 'username');
+            var firstLetter = phoneInput.value.match(/\p{Letter}/u)?.[0] || '';
+            phoneInput.dir = nextMode === 'username' && /[\p{Script=Arabic}\p{Script=Hebrew}]/u.test(firstLetter) ? 'rtl' : 'ltr';
         }
 
         if (emailInput) {
@@ -2552,6 +2560,95 @@
                 nextInput.focus({ preventScroll: true });
             }
         }
+    }
+
+    function bindEmailDomainFeedback(input) {
+        var row = input.closest('.digits-form_input_row');
+        if (!row || !config.emailDomainNonce) { return; }
+
+        var status = document.createElement('p');
+        status.id = 'dg-email-domain-status';
+        status.className = 'dg-email-domain-status';
+        status.setAttribute('role', 'status');
+        row.after(status);
+        input.setAttribute('aria-describedby', [input.getAttribute('aria-describedby'), status.id].filter(Boolean).join(' '));
+        var persian = document.documentElement.lang.toLowerCase().startsWith('fa');
+        var labels = {
+            checking: persian ? 'در حال بررسی دامنهٔ ایمیل…' : 'Checking the email domain…',
+            valid: persian ? 'دامنهٔ ایمیل معتبر است.' : 'The email domain accepts mail.',
+            invalid: persian ? 'برای این دامنه سرویس ایمیل پیدا نشد. نشانی را بررسی کنید.' : 'No mail service was found for this domain. Check the address.',
+            format: persian ? 'نشانی ایمیل معتبر وارد کنید.' : 'Enter a valid email address.',
+            unavailable: persian ? 'بررسی دامنه فعلاً ممکن نیست. می‌توانید ادامه دهید.' : 'The domain check is temporarily unavailable. You can continue.'
+        };
+        var cache = new Map();
+        var timer;
+        var pending;
+
+        function render(state) {
+            if (status.dataset.state === state) { return; }
+            status.dataset.state = state;
+            status.replaceChildren();
+            if (state) {
+                var text = document.createElement('span');
+                text.textContent = labels[state];
+                status.appendChild(text);
+                putAuthIcon(status, state === 'valid' ? 'check' : (state === 'checking' ? 'email' : 'info'));
+            }
+        }
+
+        async function check(domain) {
+            var request = { domain: domain, controller: new AbortController() };
+            pending = request;
+            var timeout = window.setTimeout(function () { request.controller.abort(); }, 6500);
+            try {
+                var body = new URLSearchParams({
+                    action: 'digitalogic_email_domain',
+                    nonce: config.emailDomainNonce,
+                    domain: domain
+                });
+                var response = await window.fetch(config.ajaxUrl, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    body: body,
+                    signal: request.controller.signal
+                });
+                var result = response.ok ? await response.json() : null;
+                if (!result?.success || typeof result.data?.valid !== 'boolean') { throw new Error('Email domain check failed'); }
+                if (cache.size >= 24) { cache.clear(); }
+                cache.set(domain, result.data.valid);
+                if (pending === request) { render(result.data.valid ? 'valid' : 'invalid'); }
+            } catch (error) {
+                if (pending === request) { render('unavailable'); }
+            } finally {
+                window.clearTimeout(timeout);
+                if (pending === request) { pending = null; }
+            }
+        }
+
+        return function update(onBlur) {
+            var value = input.disabled ? '' : input.value;
+            var domain = emailDomain(value);
+            window.clearTimeout(timer);
+            if (pending && pending.domain !== domain) {
+                pending.controller.abort();
+                pending = null;
+            }
+            if (!domain) {
+                render(value && onBlur ? 'format' : '');
+                return;
+            }
+            if (cache.has(domain)) {
+                render(cache.get(domain) ? 'valid' : 'invalid');
+                return;
+            }
+            if (pending) { return; }
+            render('checking');
+            if (onBlur) {
+                void check(domain);
+            } else {
+                timer = window.setTimeout(function () { void check(domain); }, 300);
+            }
+        };
     }
 
     var dgCountryOptions = [
@@ -2761,14 +2858,15 @@
                 }
             });
         });
-        phoneInput.setAttribute('dir', 'auto');
-        emailInput.setAttribute('dir', 'auto');
+        phoneInput.dir = 'ltr';
+        emailInput.dir = 'ltr';
         emailInput.type = 'text';
         emailInput.inputMode = 'email';
         phoneInput.placeholder = getLabel('identityPlaceholder', 'Username, email, or mobile number');
         emailInput.placeholder = getLabel('identityPlaceholder', 'Username, email, or mobile number');
         phoneInput.setAttribute('aria-label', phoneInput.placeholder);
         emailInput.setAttribute('aria-label', emailInput.placeholder);
+        var updateEmailFeedback = bindEmailDomainFeedback(emailInput);
 
         function syncFrom(input, currentMode) {
             var original = input.value;
@@ -2853,17 +2951,21 @@
 
         phoneInput.addEventListener('input', function () {
             syncFrom(phoneInput, 'phone');
+            updateEmailFeedback?.(false);
         });
 
         emailInput.addEventListener('input', function () {
             syncFrom(emailInput, 'email');
+            updateEmailFeedback?.(false);
         });
+        emailInput.addEventListener('blur', function () { updateEmailFeedback?.(true); });
 
         phoneInput.addEventListener('blur', function () {
             normalizePhoneOnBlur(phoneInput);
         });
 
         selectDigitsMode(classifyIdentity(phoneInput.value || emailInput.value), false);
+        updateEmailFeedback?.(false);
         prepareDigitsCaptchaProtection();
     }
 
@@ -2890,7 +2992,11 @@
             }
             var button = document.createElement('button');
             button.type = 'button';
-            button.textContent = label;
+            button.className = 'dg-auth-back';
+            var text = document.createElement('span');
+            text.textContent = label;
+            button.appendChild(text);
+            putAuthIcon(button, 'back');
             button.addEventListener('click', callback);
             actions.appendChild(button);
         }
@@ -3653,13 +3759,8 @@
         if (authShell) {
             var footer = document.querySelector('body.login #nav');
             if (footer) { footer.hidden = true; }
-            var home = document.querySelector('#backtoblog a');
-            if (home) {
-                home.textContent = isPersianLocale() ? 'صفحه اصلی' : 'Home';
-                home.classList.add('dg-auth-home');
-                putAuthIcon(home, 'home');
-                authShell.before(home);
-            }
+            var home = document.querySelector('#backtoblog .dg-auth-home');
+            if (home) { putAuthIcon(home, home.dataset.dgExitIcon === 'back' ? 'back' : 'home'); }
         }
         document.querySelectorAll('body.login #backtoblog a').forEach(function (link) {
             var label = link.textContent.replace(/^\s*[←→]\s*/, '');
@@ -3686,6 +3787,9 @@
         key: 'M15 3a6 6 0 1 1-3 11L5 21H2v-3l7-7a6 6 0 0 1 6-8Z M16 8h.01',
         sms: 'M4 4h16v12H9l-5 4z M8 9h8 M8 12h5',
         arrow: 'M5 12h14m-6-6 6 6-6 6',
+        back: 'M19 12H5m6-6-6 6 6 6',
+        check: 'M5 12l4 4L19 6',
+        info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM12 11v5m0-8h.01',
         more: 'M4 7h16 M4 12h16 M4 17h16 M8 5v4 M15 10v4 M10 15v4'
     };
 

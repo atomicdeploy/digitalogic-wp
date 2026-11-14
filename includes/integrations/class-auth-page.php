@@ -33,6 +33,8 @@ final class Digitalogic_Plugin_Auth_Routes {
 		add_action( 'login_form_retrievepassword', array( self::class, 'redirect_recovery_entry' ), 1 );
 		add_action( 'wp_ajax_digitalogic_recovery_nonce', array( self::class, 'recovery_nonce' ) );
 		add_action( 'wp_ajax_digitalogic_recovery_password', array( self::class, 'save_recovery_password' ) );
+		add_action( 'wp_ajax_nopriv_digitalogic_email_domain', array( self::class, 'check_email_domain' ) );
+		add_action( 'wp_ajax_digitalogic_email_domain', array( self::class, 'check_email_domain' ) );
 		add_action( 'set_logged_in_cookie', array( self::class, 'record_recovery_session' ), 10, 6 );
         add_action('wp_login_failed', [self::class, 'redirect_failed_login'], 99);
         add_filter('register_url', [self::class, 'register_url'], 9999);
@@ -81,6 +83,30 @@ final class Digitalogic_Plugin_Auth_Routes {
 		return $valid || $known ? $user : new WP_Error( 'authentication_failed', self::failed_login_message() );
 	}
 
+	/** Validate a domain without accepting an address or checking for an account. */
+	public static function check_email_domain(): void {
+		check_ajax_referer( 'digitalogic_email_domain', 'nonce' );
+		$domain = isset( $_POST['domain'] ) && is_string( $_POST['domain'] ) ? strtolower( trim( wp_unslash( $_POST['domain'] ) ) ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Validate the complete domain before using it.
+		if ( ! self::is_email_domain_name( $domain ) ) {
+			wp_send_json_success( array( 'valid' => false ) );
+		}
+
+		$address = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+		$key     = 'dg_email_checks_' . hash( 'sha256', $address . ':' . (string) floor( time() / MINUTE_IN_SECONDS ) );
+		$count   = (int) get_transient( $key );
+		if ( $count >= 45 ) {
+			wp_send_json_error( null, 429 );
+		}
+		set_transient( $key, $count + 1, MINUTE_IN_SECONDS );
+		wp_send_json_success( array( 'valid' => self::email_domain_accepts_mail( $domain ) ) );
+	}
+
+	/** Require a bounded DNS name with at least two labels. */
+	private static function is_email_domain_name( string $domain ): bool {
+		return strlen( $domain ) <= 253
+			&& (bool) preg_match( '/\A[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+\z/', $domain );
+	}
+
 	/**
 	 * Accept common providers and require a real MX target for other domains.
 	 *
@@ -91,7 +117,7 @@ final class Digitalogic_Plugin_Auth_Routes {
 		if ( in_array( $domain, $providers, true ) ) {
 			return true;
 		}
-		if ( ! function_exists( 'getmxrr' ) || strlen( $domain ) > 253 || ! preg_match( '/\A[a-z0-9-]+(?:\.[a-z0-9-]+)+\z/', $domain ) ) {
+		if ( ! function_exists( 'getmxrr' ) || ! self::is_email_domain_name( $domain ) ) {
 			return false;
 		}
 		$cache_key = hash( 'sha256', $domain );
@@ -483,13 +509,74 @@ final class Digitalogic_Plugin_Auth_Routes {
      */
     private static function render_login_footer(): void {
         add_filter('login_display_language_dropdown', '__return_false', PHP_INT_MAX);
+		add_filter( 'login_site_html_link', array( self::class, 'auth_footer_link' ) );
 
         try {
             login_footer('user_login');
         } finally {
             remove_filter('login_display_language_dropdown', '__return_false', PHP_INT_MAX);
+			remove_filter( 'login_site_html_link', array( self::class, 'auth_footer_link' ) );
         }
     }
+
+	/** Render the exit link in the WordPress footer, including without JavaScript. */
+	public static function auth_footer_link(): string {
+		$persian     = str_starts_with( strtolower( determine_locale() ), 'fa' );
+		$home        = home_url( '/' );
+		$requested   = isset( $_GET['redirect_to'] ) && is_string( $_GET['redirect_to'] ) ? esc_url_raw( wp_unslash( $_GET['redirect_to'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only navigation.
+		$destination = self::auth_exit_destination( $requested );
+		$label       = $persian ? 'صفحه اصلی' : 'Home';
+		$icon        = 'home';
+		if ( '' !== $destination ) {
+			$icon  = 'back';
+			$label = $persian ? 'بازگشت به صفحهٔ قبلی' : 'Back to previous page';
+			if ( 'git.digitalogic.ir' === wp_parse_url( $destination, PHP_URL_HOST ) ) {
+				$label = $persian ? 'بازگشت به گیت' : 'Back to Git';
+			}
+		}
+		return sprintf(
+			'<a class="dg-auth-home" data-dg-exit-icon="%s" href="%s">%s</a>',
+			esc_attr( $icon ),
+			esc_url( $destination ?: $home ),
+			esc_html( $label )
+		);
+	}
+
+	/** Allow a same-site return or the first-party Git site, without restarting sign-in. */
+	private static function auth_exit_destination( string $requested ): string {
+		if ( '' === $requested || str_contains( $requested, '\\' ) ) {
+			return '';
+		}
+		$target = wp_parse_url( $requested );
+		$home   = wp_parse_url( home_url( '/' ) );
+		if ( ! is_array( $target ) || isset( $target['user'] ) || isset( $target['pass'] ) ) {
+			return '';
+		}
+		$path = rawurldecode( (string) ( $target['path'] ?? '/' ) );
+		if ( 'git.digitalogic.ir' === ( $target['host'] ?? '' ) && 'https' === ( $target['scheme'] ?? '' ) && ! isset( $target['port'] ) ) {
+			return $requested;
+		}
+		if ( isset( $target['host'] ) ) {
+			if ( $target['host'] !== $home['host'] || ( $target['scheme'] ?? '' ) !== $home['scheme'] || ( $target['port'] ?? null ) !== ( $home['port'] ?? null ) ) {
+				return '';
+			}
+		} elseif ( isset( $target['scheme'] ) || ! str_starts_with( $requested, '/' ) || str_starts_with( $requested, '//' ) ) {
+			return '';
+		}
+		if ( '/wp-login.php' === rtrim( $path, '/' ) ) {
+			parse_str( $target['query'] ?? '', $query );
+			$callback = isset( $query['redirect_uri'] ) && is_string( $query['redirect_uri'] ) ? wp_parse_url( $query['redirect_uri'] ) : array();
+			if ( 'openid-authenticate' === ( $query['action'] ?? '' ) && 'git.digitalogic.ir' === ( $callback['host'] ?? '' ) && 'https' === ( $callback['scheme'] ?? '' )
+				&& ! isset( $callback['user'] ) && ! isset( $callback['pass'] ) && ! isset( $callback['port'] ) ) {
+				return 'https://git.digitalogic.ir/';
+			}
+			return '';
+		}
+		if ( '/login' === rtrim( $path, '/' ) ) {
+			return '';
+		}
+		return wp_validate_redirect( $requested, '' );
+	}
 
     public static function register_url(string $url): string {
         return add_query_arg('action', 'register', self::canonical_login_url());

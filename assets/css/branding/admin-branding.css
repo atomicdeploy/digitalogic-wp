@@ -235,6 +235,16 @@ body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) {
     box-shadow: var(--dg-shadow);
 }
 
+body.login .dg-digits-login-shell {
+    gap: 0;
+    padding: 0;
+}
+
+body.login .dg-digits-login-shell > .digits-form_container {
+    box-sizing: border-box;
+    padding: clamp(24px, 4vw, 40px);
+}
+
 body.login .dg-digits-register-shell:not(.dg-has-hero-carousel) {
     grid-template-columns: minmax(0, 1fr);
     max-inline-size: 510px;
@@ -351,6 +361,21 @@ body.login .dg-login-hero-carousel.is-dragging .dg-hero-slide {
 body.login .dg-login-hero-carousel.dg-hero-static {
     cursor: default;
     touch-action: auto;
+}
+
+body.login .dg-digits-login-shell > .dg-login-hero-carousel,
+body.login .dg-digits-login-shell::before {
+    min-block-size: 0;
+    border-radius: 0;
+    border-start-start-radius: 33px;
+    border-end-start-radius: 33px;
+    border-inline-end: 1px solid var(--dg-border);
+    box-shadow: none;
+}
+
+body.login .dg-digits-login-shell > .dg-login-hero-carousel .dg-hero-slide {
+    background-size: contain;
+    filter: none;
 }
 
 body.login .dg-hero-glow {
@@ -672,22 +697,8 @@ body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-mobile_wrapper
     direction: ltr;
 }
 
-body.login .dg-digits-login-shell.dg-digits-auto-identity:not([data-dg-identity="phone"]) .mobile_field {
-    padding-inline-start: 46px !important;
-    padding-inline-end: 16px !important;
-    direction: ltr;
-    text-align: left !important;
-}
-
 body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="email"] .digits-form_input_row:has(input[name="digits_email"]) {
     direction: ltr;
-}
-
-body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="email"] input[name="digits_email"] {
-    padding-inline-start: 46px !important;
-    padding-inline-end: 16px !important;
-    direction: ltr;
-    text-align: left !important;
 }
 
 body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .mobile_field {
@@ -1418,7 +1429,7 @@ body.wp-admin .button.button-primary {
     color: #fff;
     font-weight: 700;
     box-shadow: 0 18px 36px color-mix(in srgb, var(--dg-accent-strong) 34%, transparent);
-    transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease, filter 0.16s ease;
+    transition: box-shadow 0.16s ease, opacity 0.16s ease, filter 0.16s ease;
 }
 
 body.login .button-primary,
@@ -1431,7 +1442,6 @@ body.login #wp-submit:hover,
 body.login .button.button-large:hover,
 body.wp-admin .button-primary:hover,
 body.wp-admin .button.button-primary:hover {
-    transform: translateY(-1px);
     filter: saturate(1.06);
 }
 
@@ -1620,7 +1630,10 @@ body.login .digits-social-logins-box .digits-social-logins {
     background: none !important;
 }
 
-body.login .digits-social-logins-box .digits-use_social-logins { order: -1; }
+body.login .digits-social-logins-box .digits-use_social-logins {
+    order: -1;
+    padding-block: 9px 8px;
+}
 body.login .digits-social-logins-box:not([hidden]) {
     row-gap: 9px;
 }
@@ -1671,11 +1684,10 @@ body.login .digits-social-btn {
     font-size: 16px;
     line-height: 1.35;
     box-shadow: var(--dg-shadow-soft);
-    transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+    transition: background 0.16s ease, border-color 0.16s ease;
 }
 
 body.login .digits-social-btn:hover {
-    transform: translateY(-1px);
     border-color: var(--dg-border-strong);
     background: var(--dg-panel-strong);
 }
@@ -1773,8 +1785,17 @@ body.login .dg-digits-login-shell .digits_register #dig_cs_mobilenumber .dg-auth
     font-size: 16px;
     line-height: 1.45 !important;
 }
-body.login .dg-digits-login-shell .dg-auth-input-icon > input:placeholder-shown:lang(fa) {
-    text-align: right !important;
+body.login .dg-digits-login-shell.dg-digits-auto-identity .dg-auth-input-icon > input:is([name="digits_phone"], [name="digits_email"]) {
+    direction: ltr !important;
+    text-align: start !important;
+}
+body.login .dg-digits-login-shell.dg-digits-auto-identity .dg-auth-input-icon:has(> input[name="digits_phone"][dir="rtl"]) {
+    direction: rtl;
+}
+body.login .dg-digits-login-shell.dg-digits-auto-identity .dg-auth-input-icon > input[name="digits_phone"][dir="rtl"] {
+    direction: rtl !important;
+    padding-left: 12px !important;
+    padding-right: 35px !important;
 }
 body.login .dg-digits-login-shell[data-dg-identity="phone"] .digits-mobile_wrapper
     > .digits-form_countrycode:not([hidden]) ~ .dg-auth-input-icon > .dg-auth-icon--phone {
@@ -1858,17 +1879,60 @@ body.login .dg-digits-login-shell .dg-auth-card-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin-block: 0 12px;
+    margin-block: 0 10px;
 }
-body.login .dg-digits-login-shell .dg-auth-card-actions button {
-    min-block-size: 42px;
-    padding: 6px 11px;
-    border: 1px solid var(--dg-border);
+body.login :is(.dg-digits-login-shell .dg-auth-back, #login #backtoblog .dg-auth-home) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-sizing: border-box;
+    min-block-size: 44px;
+    padding: 8px 12px;
+    border: 0;
     border-radius: 10px;
-    background: var(--dg-panel-soft);
-    color: var(--dg-text);
-    font: 600 13px/1.5 var(--dg-font, system-ui, sans-serif);
+    background: transparent;
+    color: var(--dg-accent-strong);
+    font: 700 14px/1.5 var(--dg-font, system-ui, sans-serif);
+    text-decoration: none;
     cursor: pointer;
+}
+body.login .dg-auth-back:hover,
+body.login #login #backtoblog .dg-auth-home:hover {
+    color: var(--dg-accent-strong);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+}
+body.login :is(.dg-auth-back, .dg-auth-home) > .dg-auth-icon {
+    inline-size: 18px;
+    block-size: 18px;
+    flex-basis: 18px;
+}
+body.login :is(.dg-auth-back, .dg-auth-home) > .dg-auth-icon--back {
+    transform: scaleX(var(--dg-forward-arrow, 1));
+}
+body.login .dg-email-domain-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 10px;
+    padding-inline: 3px;
+    color: var(--dg-text-soft);
+    font: 500 13px/1.65 var(--dg-font, system-ui, sans-serif);
+}
+body.login .dg-email-domain-status:empty {
+    margin: 0;
+}
+body.login .dg-email-domain-status > .dg-auth-icon {
+    inline-size: 16px;
+    block-size: 16px;
+    flex-basis: 16px;
+}
+body.login .dg-email-domain-status[data-state="valid"] > .dg-auth-icon {
+    color: var(--dg-accent-strong);
+}
+body.login .dg-email-domain-status:is([data-state="invalid"], [data-state="format"]) > .dg-auth-icon {
+    color: var(--dg-danger);
 }
 body.login .dg-digits-login-shell .dg-sms-identity-help {
     margin: 0 0 12px;
@@ -1964,20 +2028,12 @@ body.login .dg-digits-login-shell form.dg-username-step-active .dg-account-hint,
 body.login:has(.dg-digits-login-shell) #nav {
     display: none !important;
 }
-body.login #login .dg-auth-home {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-block-size: 44px;
-    inline-size: fit-content;
-    margin: 0 auto 8px;
-    padding-inline: 14px;
-    border: 1px solid var(--dg-border);
-    border-radius: 12px;
-    background: var(--dg-panel-strong);
-    color: var(--dg-text);
-    text-decoration: none;
-    font-weight: 600;
+body.login #login:has(.dg-digits-login-shell) #backtoblog {
+    margin: 8px 0 0;
+    padding: 0;
+}
+body.login #backtoblog a.dg-auth-home::before {
+    content: none;
 }
 body.login #login #backtoblog:empty {
     display: none;
@@ -2791,7 +2847,7 @@ body.login .dg-digits-login-shell .digits-form_rememberme {
     justify-content: flex-start !important;
     min-height: auto !important;
     height: auto !important;
-    margin-block: 4px 14px !important;
+    margin-block: 4px 24px !important;
     padding: 0 !important;
     border: 0 !important;
     background: transparent !important;
@@ -3272,7 +3328,25 @@ body.wp-admin .digitalogic-panel-page .button-hero {
     }
 
     body.login .dg-digits-login-shell > .digits-form_container {
-        padding-block: 0;
+        padding: 20px clamp(16px, 5vw, 24px) 22px;
+    }
+
+    body.login .dg-digits-login-shell {
+        gap: 0;
+        padding: 0;
+    }
+
+    body.login .dg-digits-login-shell > .dg-login-hero-carousel,
+    body.login .dg-digits-login-shell::before {
+        min-block-size: clamp(128px, 37vw, 208px);
+        border-radius: 23px 23px 0 0;
+        border-end-start-radius: 0;
+        border-inline-end: 0;
+        border-block-end: 1px solid var(--dg-border);
+    }
+
+    body.login .dg-digits-login-shell > .dg-login-hero-carousel .dg-hero-slide {
+        background-position: center;
     }
 
     body.login #loginform,
