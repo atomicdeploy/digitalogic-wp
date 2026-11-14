@@ -163,13 +163,24 @@ final class Digitalogic_Plugin_Auth_Routes {
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- Digits validates the authentication request.
 		if ( ! wp_doing_ajax() || 'digits_forms_ajax' !== ( $_POST['action'] ?? '' )
 			|| '1' !== ( $_POST['dg_recovery'] ?? '' )
-			|| ! is_string( $_POST['sms_otp'] ?? null )
-			|| ! preg_match( '/\A[0-9]{4,8}\z/', sanitize_text_field( wp_unslash( $_POST['sms_otp'] ) ) )
+			|| ! self::has_submitted_recovery_code()
 			|| ! empty( $_POST['password'] ) || ! empty( $_POST['pwd'] ) ) {
 			return;
 		}
 		// phpcs:enable WordPress.Security.NonceVerification.Missing
 		set_transient( self::recovery_session_key( $token ), $user_id, 10 * MINUTE_IN_SECONDS );
+	}
+
+	/** Recognize either native Digits OTP field. Digits validates the code before issuing the cookie. */
+	private static function has_submitted_recovery_code(): bool {
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- Digits validates the authentication request.
+		foreach ( array( 'sms_otp', 'email_otp' ) as $field ) {
+			if ( is_string( $_POST[ $field ] ?? null ) && preg_match( '/\A[0-9]{4,8}\z/', sanitize_text_field( wp_unslash( $_POST[ $field ] ) ) ) ) {
+				return true;
+			}
+		}
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+		return false;
 	}
 
 	/**

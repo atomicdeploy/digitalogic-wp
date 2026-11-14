@@ -567,11 +567,11 @@
             'body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-form_tab_body.digits-tab_active{display:block!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity:not([data-dg-identity="phone"]) .digits-form_countrycode{display:none!important;}',
             'body.login .dg-digits-login-shell :is(.digits-form_input_row, .digits-form_input){border-color:var(--dg-border)!important;border-radius:16px!important;color:var(--dg-text)!important;}',
-            'body.login .dg-digits-login-shell .digits-form_input_row:not(.dg-username-password-row,.digits-form_rememberme){min-height:58px!important;margin-block:11px!important;padding-inline:14px!important;background:var(--dg-input-bg)!important;}',
+            'body.login .dg-digits-login-shell .digits-form_input_row:not(.dg-username-password-row,.digits-form_rememberme,:has(.dg-otp-editor)){min-height:58px!important;margin-block:11px!important;padding-inline:14px!important;background:var(--dg-input-bg)!important;}',
             'body.login .dg-digits-login-shell .digits-form_rememberme{display:flex!important;align-items:center!important;justify-content:flex-start!important;min-height:auto!important;height:auto!important;margin-block:4px 24px!important;padding:0!important;border:0!important;background:transparent!important;overflow:visible!important;}',
             'body.login .dg-digits-login-shell .digits-form_rememberme :is(.digits-form_input,.dig_opt_mult_con,.dig_opt_mult,label,.dig_input_wrapper,.dig_input_wrapper>div){display:inline-flex!important;align-items:center!important;justify-content:flex-start!important;gap:10px!important;width:auto!important;min-height:0!important;margin:0!important;padding:0!important;border:0!important;background:transparent!important;line-height:1.35!important;}',
             'body.login .dg-digits-login-shell .digits-form_rememberme .dig_input_wrapper::before,body.login .dg-digits-login-shell .digits-form_rememberme .dig_input_wrapper::after,body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::before,body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::after,html[dir="rtl"] body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::before,html[dir="rtl"] body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::after{content:none!important;display:none!important;opacity:0!important;visibility:hidden!important;}',
-            'body.login .dg-digits-login-shell .digits-form_input input:not(.digits_login_remember_me){min-height:48px!important;margin:0!important;border:0!important;background:transparent!important;color:var(--dg-text)!important;box-shadow:none!important;font-family:var(--dg-font)!important;}',
+            'body.login .dg-digits-login-shell .digits-form_input input:not(.digits_login_remember_me,.dg-otp-slot input){min-height:48px!important;margin:0!important;border:0!important;background:transparent!important;color:var(--dg-text)!important;box-shadow:none!important;font-family:var(--dg-font)!important;}',
             'body.login .dg-digits-login-shell :is(input[type="password"],input.dg-password-visible,#user_pass,.dg-username-password-input){direction:ltr!important;text-align:left!important;font-family:ui-monospace,"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace!important;font-variant-numeric:tabular-nums!important;}',
             'body.login .dg-digits-login-shell :is(input[type="password"],input.dg-password-visible,#user_pass,.dg-username-password-input)::placeholder{font-family:var(--dg-placeholder-font,var(--dg-font))!important;font-variant-numeric:normal!important;letter-spacing:0!important;}',
             'body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me{appearance:none!important;-webkit-appearance:none!important;display:inline-grid!important;place-items:center!important;visibility:visible!important;opacity:1!important;inline-size:22px!important;block-size:22px!important;width:22px!important;height:22px!important;min-width:22px!important;min-height:22px!important;max-width:22px!important;max-height:22px!important;flex:0 0 22px!important;margin:0!important;padding:0!important;line-height:1!important;border:1px solid var(--dg-border)!important;border-radius:8px!important;background:color-mix(in srgb,var(--dg-panel-soft) 72%,transparent)!important;box-shadow:inset 0 1px 0 color-mix(in srgb,#ffffff 10%,transparent),var(--dg-shadow-soft)!important;transform:scale(1)!important;transition:background-color .18s ease,background-image .18s ease,border-color .18s ease,box-shadow .18s ease,transform .18s cubic-bezier(.2,.8,.2,1)!important;}',
@@ -638,9 +638,25 @@
         return /(^\.|\.\.|\.$)/.test(local) ? '' : value.slice(local.length + 1).toLowerCase();
     }
 
-    function phonePartsFromValue(value) {
+    function phonePartsFromValue(value, selectedCountry) {
         var normalized = normalizeDigits(value).trim();
         var compact = normalized.replace(/[\s().-]+/g, '');
+        if (window.libphonenumber && /^(?:\+\d*|\d+)$/.test(compact)) {
+            var explicit = /^(?:\+|00)/.test(compact);
+            var candidate = compact.replace(/^00/, '+');
+            var country = selectedCountry || '+98';
+            var countries = window.libphonenumber.getCountries();
+            var region = country === '+98' ? 'IR' : countries.find(function (code) {
+                return '+' + window.libphonenumber.getCountryCallingCode(code) === country;
+            });
+            if (!explicit && !region) { candidate = country + candidate; }
+            var parsed = window.libphonenumber.parsePhoneNumberFromString(candidate, region);
+            if (parsed && parsed.isValid()) {
+                return { type: 'phone', national: parsed.nationalNumber, normalized: normalized, valid: true,
+                    countryCode: '+' + parsed.countryCallingCode, kind: parsed.getType(), e164: parsed.number };
+            }
+            return { type: 'phone', national: compact, normalized: normalized, valid: false, countryCode: country };
+        }
         var numeric = compact.replace(/[^\d+]/g, '');
         var digits = numeric.replace(/\D/g, '');
         var national = digits;
@@ -1300,9 +1316,9 @@
         );
     }
 
-    function digitsSmsTab(password) {
+    function digitsOtpTab(password) {
         var step = password && password.closest('.digits-form_tab_container');
-        if (step && step.querySelector('.digits-form_otp_selector[data-type="sms_otp"], input[name="sms_otp"]')) {
+        if (step && step.querySelector('.digits-form_otp_selector:is([data-type="sms_otp"], [data-type="email_otp"]), input:is([name="sms_otp"], [name="email_otp"])')) {
             return step.querySelector('.digits-form_tab-item[data-value="otp"]');
         }
         return null;
@@ -1311,21 +1327,49 @@
     function startNativeDigitsSms(password, tab) {
         password.value = '';
         tab.click();
+        var step = tab.closest?.('.digits-form_tab_container');
+        var channel = step?.querySelector('.digits-tab_active .digits-form_otp_selector:is([data-type="sms_otp"], [data-type="email_otp"]):not(.auto-click)');
+        if (channel && !channel.closest('.digits-tab_active').querySelector('input:is([name="sms_otp"], [name="email_otp"])')) {
+            channel.click();
+        }
     }
 
     function showDigitsSmsIdentity(form) {
+        var identity = digitsIdentityValue(form);
+        var email = !!emailDomain(identity);
         var back = form.querySelector('.dg-username-password-step:not([hidden]) .dg-username-login-back, .digits_form_back:not(.digits_hide_back)');
         if (back) { back.click(); }
+        if (email) {
+            form.dataset.dgSmsIdentity = 'true';
+            selectDigitsMode('email', false);
+            updateVerificationAction(form);
+            submitDigitsSecureForm(form);
+            return;
+        }
         var currentPhone = form.querySelector('[name="digits_phone"]');
         if (classifyIdentity(currentPhone.value) !== 'phone') {
             form.querySelector('[name="digits_email"]').value = '';
             currentPhone.value = '';
         }
         form.dataset.dgSmsIdentity = 'true';
-        form.querySelector('.digits-form_login > .digits-form_submit-btn .digits-form_button-text').textContent = getLabel('sendSmsCode', 'Send SMS code');
         selectDigitsMode('phone', true);
+        updateVerificationAction(form);
         var help = form.querySelector('.dg-sms-identity-help');
         if (help) { help.hidden = false; }
+    }
+
+    function updateVerificationAction(form) {
+        var primary = form.querySelector('.digits-form_login > .digits-form_submit-btn .digits-form_button-text');
+        if (!primary || !form.classList.contains('digits_form_index_section')) { return; }
+        var shell = form.closest('.dg-digits-login-shell');
+        var mode = shell.dataset.dgIdentity;
+        var number = mode === 'phone' && phonePartsFromValue(digitsIdentityValue(form), form.querySelector('[name="login_digt_countrycode"]')?.value);
+        var call = number && (number.kind === 'FIXED_LINE' || (number.kind === 'FIXED_LINE_OR_MOBILE' && form.dataset.dgPhoneChannel === 'call'));
+        var label = getLabel('continue', 'Continue');
+        if (!call && form.dataset.dgSmsIdentity === 'true') {
+            label = mode === 'email' ? getLabel('sendEmailCode', 'Send email code') : getLabel('sendSmsCode', 'Send SMS code');
+        }
+        primary.textContent = label;
     }
 
     function createPasswordlessAction(captionId, onClick) {
@@ -1363,7 +1407,7 @@
         form.dataset.dgSmsReady = 'true';
         var action = createPasswordlessAction('dg-native-passwordless-caption', function () {
             var password = visibleDigitsPassword(form);
-            var tab = digitsSmsTab(password);
+            var tab = digitsOtpTab(password);
             if (tab && form.dataset.dgPending !== 'true') {
                 authRecovery = true;
                 startNativeDigitsSms(password, tab);
@@ -1373,8 +1417,8 @@
 
         function updateVisibility() {
             var password = visibleDigitsPassword(form);
-            var tab = digitsSmsTab(password);
-            var otp = visibleDigitsSmsInput(form);
+            var tab = digitsOtpTab(password);
+            var otp = visibleDigitsOtpInput(form);
             action.hidden = !tab;
 
             if (form.dataset.dgSmsIdentity === 'true' && !form.classList.contains('digits_form_index_section')) {
@@ -1384,6 +1428,9 @@
                 primary.querySelector('.digits-form_button-text').textContent = getLabel('continue', 'Continue');
                 if (tab) {
                     startNativeDigitsSms(password, tab);
+                } else {
+                    var selector = wrapper.querySelector('.digits-form_tab_body.digits-tab_active .digits-form_otp_selector:is([data-type="sms_otp"], [data-type="email_otp"]):not(.auto-click)');
+                    if (!otp && selector && isVisibleElement(selector)) { selector.click(); }
                 }
             }
 
@@ -1393,6 +1440,9 @@
                     otp.classList.add('disable_auto_read');
                 }
                 prepareDigitsOtpEditor(otp);
+            }
+            if (form.classList.contains('dg-otp-step') !== Boolean(otp)) {
+                form.classList.toggle('dg-otp-step', Boolean(otp));
             }
             updateDigitsResend(form);
         }
@@ -1405,7 +1455,7 @@
             attributeFilter: ['class', 'style', 'hidden', 'type', 'disabled']
         });
         form.addEventListener('input', function (event) {
-            if (event.target.matches('input[name="sms_otp"]')) {
+            if (event.target.matches('input:is([name="sms_otp"], [name="email_otp"])')) {
                 stopDigitsSmsWait(form);
             }
         });
@@ -1770,6 +1820,11 @@
         return Array.prototype.find.call(form.querySelectorAll('input.otp_input[name="sms_otp"]'), isVisibleElement);
     }
 
+    function visibleDigitsOtpInput(form) {
+        return visibleDigitsSmsInput(form)
+            || Array.prototype.find.call(form.querySelectorAll('input[name="email_otp"]:not([type="hidden"])'), isVisibleElement);
+    }
+
     function otpDigits(value) {
         return normalizeDigits(value).replace(/[^0-9]/g, '');
     }
@@ -1786,6 +1841,22 @@
         editor.style.setProperty('--dg-otp-count', String(count));
         editor.setAttribute('role', 'group');
         editor.setAttribute('aria-label', getLabel('otpCode', 'Verification code'));
+        var step = input.closest('.digits-form_tab_container');
+        if (step && !step.querySelector('.dg-otp-instructions')) {
+            var help = document.createElement('p');
+            help.className = 'dg-otp-instructions';
+            help.textContent = input.name === 'email_otp'
+                ? getLabel('emailCodeInstructions', 'Enter the code sent to your email address.')
+                : getLabel('smsCodeInstructions', 'Enter the code sent to your phone.');
+            step.prepend(help);
+        }
+        var heading = input.form?.querySelector('.digits-form_heading');
+        if (heading && !heading.querySelector('.dg-otp-heading')) {
+            var title = document.createElement('span');
+            title.className = 'dg-otp-heading';
+            title.textContent = getLabel('otpCode', 'Verification code');
+            heading.appendChild(title);
+        }
         var cells = [];
 
         function syncCode() {
@@ -1908,10 +1979,13 @@
         }
         form.dataset.dgRegistrationOtp = 'true';
         function update() {
-            var otp = visibleDigitsSmsInput(form);
+            var otp = visibleDigitsOtpInput(form);
             if (otp) {
                 if (!otp.classList.contains('disable_auto_read')) { otp.classList.add('disable_auto_read'); }
                 prepareDigitsOtpEditor(otp);
+            }
+            if (form.classList.contains('dg-otp-step') !== Boolean(otp)) {
+                form.classList.toggle('dg-otp-step', Boolean(otp));
             }
             updateDigitsResend(form);
         }
@@ -2018,6 +2092,7 @@
         }
         timer.button = button;
         button.classList.add('dg-otp-resend');
+        putAuthIcon(button, 'sms');
         button.setAttribute('aria-label', getLabel('otpResend', 'Resend code'));
         if (!button.matches('button, input') && !button.matches('a[href]')) {
             button.setAttribute('role', 'button');
@@ -2120,23 +2195,25 @@
                 var requestForm = digitsRequestForm();
                 var brandedAuth = requestForm && requestForm.closest && requestForm.closest('.dg-digits-login-shell, .dg-digits-register-shell');
                 var fields = brandedAuth && Array.isArray(settings.data) ? settings.data : [];
-                var submittedCode = fields.some(function (field) { return field && field.name === 'sms_otp' && field.value; });
-                if (authRecovery && submittedCode) {
-                    guardedSettings.data = fields.concat({ name: 'dg_recovery', value: '1' });
-                }
                 var checksStatus = fields.some(function (field) { return field && field.name === 'check_status'; });
                 var sendsSms = fields.some(function (field) { return field && field.name === 'sub_action' && field.value === 'sms_otp'; });
-                if (sendsSms || checksStatus) {
-                    // Only the verification request may carry the current SMS code.
+                var sendsEmail = fields.some(function (field) { return field && field.name === 'sub_action' && field.value === 'email_otp'; });
+                var sendsCode = sendsSms || sendsEmail;
+                var verifiesCode = !sendsCode && !checksStatus && fields.some(function (field) {
+                    return field && ['sms_otp', 'email_otp'].includes(field.name) && field.value;
+                });
+                if (authRecovery && verifiesCode) {
+                    guardedSettings.data = fields.concat({ name: 'dg_recovery', value: '1' });
+                }
+                if (sendsCode || checksStatus) {
                     guardedSettings.data = fields.map(function (field) {
-                        return field && field.name === 'sms_otp' ? { name: field.name, value: '' } : field;
+                        return field && ['sms_otp', 'email_otp'].includes(field.name) ? { name: field.name, value: '' } : field;
                     });
                 }
                 if (checksStatus) {
                     args[settingsIndex] = guardedSettings;
                     return originalAjax.apply(this, args);
                 }
-                var verifiesSms = fields.some(function (field) { return field && field.name === 'sms_otp' && field.value; });
                 var smsWait = null;
 
                 if (!guardedSettings.timeout) {
@@ -2159,7 +2236,7 @@
                         }
                         smsWait = startDigitsSmsWait(requestForm);
                     } else {
-                        if (verifiesSms) {
+                        if (verifiesCode) {
                             stopDigitsSmsWait(requestForm);
                         }
                         var action = document.activeElement;
@@ -2196,7 +2273,7 @@
                     try {
                         if (payload.success) {
                             finishBrandedDigitsLogin(requestForm, payload.data);
-                            if (verifiesSms && brandedAuth && completeRecovery(payload.data)) {
+                            if (verifiesCode && brandedAuth && completeRecovery(payload.data)) {
                                 return;
                             }
                         } else if (brandedAuth && continueToDigitsSignup(requestForm, payload.data)) {
@@ -2205,15 +2282,15 @@
                                 success.call(this, { success: true, data: {} });
                             }
                             return;
-                        } else if (verifiesSms) {
-                            var rejected = visibleDigitsSmsInput(requestForm);
+                        } else if (verifiesCode) {
+                            var rejected = visibleDigitsOtpInput(requestForm);
                             var group = rejected && rejected.previousElementSibling;
                             if (group && group.classList.contains('dg-otp-editor')) {
                                 group.setAttribute('aria-invalid', 'true');
                             }
                         }
-                        if (sendsSms && payload.success) {
-                            payload.data.check_remote_status = false;
+                        if (sendsCode && payload.success) {
+                            if (sendsSms) { payload.data.check_remote_status = false; }
                             var seconds = Number(payload.data.resend_timer);
                             if (Number.isFinite(seconds) && seconds > 0) {
                                 digitsResendTimers.set(requestForm, { seconds: seconds, until: Date.now() + seconds * 1000 });
@@ -2226,7 +2303,7 @@
                         }
                         if (typeof success === 'function') {
                             var result = success.apply(this, arguments);
-                            if (sendsSms && payload.success && digitsResendTimers.has(requestForm)) {
+                            if (sendsCode && payload.success && digitsResendTimers.has(requestForm)) {
                                 updateDigitsResend(requestForm);
                             }
                             return result;
@@ -2355,7 +2432,7 @@
 
     function submitDigitsSecureForm(form) {
         var button = digitsSubmitButton(form);
-        var otp = visibleDigitsSmsInput(form);
+        var otp = visibleDigitsOtpInput(form);
 
         if (otp && digitsOtpEditors.has(otp) && !otp.value) {
             showDigitsInlineMessage(form, getLabel('otpIncomplete', 'Enter the full verification code.'), 'warning');
@@ -2365,9 +2442,34 @@
 
         prepareDigitsCaptchaProtection();
 
-        if (form.dataset.dgSmsIdentity === 'true' && form.closest('.dg-digits-login-shell').dataset.dgIdentity !== 'phone') {
+        var shell = form.closest('.dg-digits-login-shell');
+        var mode = shell?.dataset.dgIdentity;
+        if (form.dataset.dgSmsIdentity === 'true' && mode !== 'phone' && mode !== 'email') {
             showDigitsInlineMessage(form, getLabel('smsIdentity', 'Enter the mobile number on your account to receive a code.'), 'warning');
             return;
+        }
+        if (form.dataset.dgSmsIdentity === 'true' && mode === 'email' && form.classList.contains('digits_form_index_section')
+            && !emailDomain(digitsIdentityValue(form))) {
+            showDigitsInlineMessage(form, getLabel('invalidEmail', 'Enter a valid email address.'), 'warning');
+            return;
+        }
+        if (form.matches('form.digloginpage.digits_form_index_section') && mode === 'phone') {
+            var country = form.querySelector('[name="login_digt_countrycode"]')?.value;
+            var number = phonePartsFromValue(digitsIdentityValue(form), country);
+            if (!number.valid) {
+                showDigitsInlineMessage(form, getLabel('invalidPhone', 'Enter a valid phone number with its area code.'), 'warning');
+                return;
+            }
+            if (number.kind === 'FIXED_LINE' || (number.kind === 'FIXED_LINE_OR_MOBILE' && form.dataset.dgPhoneChannel === 'call')) {
+                if (!window.DigitalogicCallLogin?.start(number.e164)) {
+                    showDigitsInlineMessage(form, getLabel('callUnavailable', 'Call verification is temporarily unavailable.'), 'warning');
+                }
+                return;
+            }
+            if (number.kind && !['MOBILE', 'FIXED_LINE_OR_MOBILE'].includes(number.kind)) {
+                showDigitsInlineMessage(form, getLabel('invalidPhone', 'Enter a valid phone number with its area code.'), 'warning');
+                return;
+            }
         }
 
         if (typeof form.checkValidity === 'function' && !form.checkValidity()) {
@@ -2423,7 +2525,8 @@
 
             var value = digitsIdentityValue(form);
             var identityType = classifyIdentity(value);
-            var isUsernameFlow = !form.dataset.dgSmsIdentity && (form.dataset.dgUsernameStep === 'password' || identityType === 'username' || identityType === 'email');
+            var isUsernameFlow = !form.dataset.dgSmsIdentity && (form.dataset.dgUsernameStep === 'password'
+                || (form.classList.contains('digits_form_index_section') && (identityType === 'username' || identityType === 'email')));
 
             event.preventDefault();
             event.stopPropagation();
@@ -2772,7 +2875,7 @@
             flag.textContent = '';
             flag.style.setProperty('--dg-flag', 'url(' + countryFlagUrl(option) + ')');
             flag.setAttribute('title', countryLabel(option));
-            flag.setAttribute('aria-label', isPersianLocale() ? 'وارد کردن شماره موبایل' : 'Enter mobile number');
+            flag.setAttribute('aria-label', isPersianLocale() ? 'وارد کردن شماره تلفن' : 'Enter phone number');
 
             menu.querySelectorAll('.dg-country-option').forEach(function (button) {
                 var active = button.dataset.code === value;
@@ -2879,18 +2982,53 @@
         emailInput.dir = 'ltr';
         emailInput.type = 'text';
         emailInput.inputMode = 'email';
-        phoneInput.placeholder = getLabel('identityPlaceholder', 'Username, email, or mobile number');
-        emailInput.placeholder = getLabel('identityPlaceholder', 'Username, email, or mobile number');
+        phoneInput.placeholder = getLabel('identityPlaceholder', 'Username, email, or phone number');
+        emailInput.placeholder = getLabel('identityPlaceholder', 'Username, email, or phone number');
         phoneInput.setAttribute('aria-label', phoneInput.placeholder);
         emailInput.setAttribute('aria-label', emailInput.placeholder);
         var updateEmailFeedback = bindEmailDomainFeedback(emailInput);
+        var login = phoneInput.form;
+        var channels = document.createElement('fieldset');
+        channels.className = 'dg-phone-channels';
+        channels.hidden = true;
+        var legend = document.createElement('legend');
+        legend.textContent = getLabel('phoneChannel', 'How would you like to verify?');
+        channels.appendChild(legend);
+        ['sms', 'call'].forEach(function (channel) {
+            var label = document.createElement('label');
+            var choice = document.createElement('input');
+            choice.type = 'radio';
+            choice.name = 'dg_phone_channel';
+            choice.value = channel;
+            choice.checked = channel === 'sms';
+            choice.disabled = true;
+            choice.addEventListener('change', function () {
+                login.dataset.dgPhoneChannel = choice.value;
+                updateVerificationAction(login);
+            });
+            label.append(choice, document.createTextNode(channel === 'sms'
+                ? getLabel('phoneSms', 'Text message') : getLabel('phoneCall', 'Phone call')));
+            channels.appendChild(label);
+        });
+        phoneInput.closest('.digits-mobile_wrapper')?.after(channels);
+        function updatePhoneChannels() {
+            var number = phonePartsFromValue(phoneInput.value, countryCode?.value);
+            channels.hidden = shell.dataset.dgIdentity !== 'phone' || number.kind !== 'FIXED_LINE_OR_MOBILE'
+                || !document.querySelector('[data-call-unified][data-call-available="true"]');
+            channels.querySelectorAll('input').forEach(function (choice) {
+                choice.disabled = channels.hidden;
+                if (channels.hidden) { choice.checked = choice.value === 'sms'; }
+            });
+            if (channels.hidden) { delete login.dataset.dgPhoneChannel; }
+            updateVerificationAction(login);
+        }
 
         function syncFrom(input, currentMode) {
             var original = input.value;
             var value = sanitizeIdentityValue(original);
-            var phone = phonePartsFromValue(value);
             var selectedCountry = countryCode ? normalizeCountryCode(countryCode.value) : '';
-            var keepSelectedCountryPhone = currentMode === 'phone' && selectedCountry && selectedCountry !== '+98' && /^\d{1,18}$/.test(value);
+            var phone = phonePartsFromValue(value, selectedCountry);
+            var keepSelectedCountryPhone = !window.libphonenumber && currentMode === 'phone' && selectedCountry && selectedCountry !== '+98' && /^\d{1,18}$/.test(value);
 
             if (phone.type === 'phone' && !keepSelectedCountryPhone) {
                 value = phone.national;
@@ -2968,20 +3106,21 @@
 
         phoneInput.addEventListener('input', function () {
             syncFrom(phoneInput, 'phone');
+            updatePhoneChannels();
             updateEmailFeedback?.(false);
         });
 
         emailInput.addEventListener('input', function () {
             syncFrom(emailInput, 'email');
+            updatePhoneChannels();
             updateEmailFeedback?.(false);
         });
         emailInput.addEventListener('blur', function () { updateEmailFeedback?.(true); });
 
-        phoneInput.addEventListener('blur', function () {
-            normalizePhoneOnBlur(phoneInput);
-        });
+        countryCode?.addEventListener('change', updatePhoneChannels);
 
         selectDigitsMode(classifyIdentity(phoneInput.value || emailInput.value), false);
+        updatePhoneChannels();
         updateEmailFeedback?.(false);
         prepareDigitsCaptchaProtection();
     }
@@ -3059,8 +3198,8 @@
         var help = document.createElement('p');
         help.className = 'dg-sms-identity-help';
         help.hidden = true;
-        help.textContent = persian ? 'برای دریافت کد تأیید، شماره موبایل خود را وارد کنید.'
-            : 'Enter your mobile number to receive a verification code.';
+        help.textContent = persian ? 'ایمیل یا شماره تلفن خود را برای دریافت کد تأیید وارد کنید.'
+            : 'Enter your email address or phone number to receive a verification code.';
         login.querySelector('.digits-form_heading')?.after(help);
         if (register) {
             addAction(register, persian ? 'بازگشت به ورود' : 'Back to sign in', returnToSignIn);
@@ -3836,7 +3975,7 @@
             if (signupFooter) { signupFooter.before(social); }
         }
         var selectors = {
-            '.digits-form_heading': 'user',
+            '.digits-form_heading:not([data-call-code-title])': 'user',
             '.dg-passkey-options summary': 'more',
             '.dg-passkey-options .digits-form_passwordless_login': 'key',
             '.dg-passkey-options .digitalogic-call-toggle, [data-call-start]': 'phone',
@@ -3978,13 +4117,19 @@
             return;
         }
 
-        var call = document.querySelector('#digitalogic-login-call-toggle');
-        var widget = call && call.closest('[data-digitalogic-call-widget]');
+        var shell = form.closest('.dg-digits-login-shell');
+        var widget = document.querySelector('[data-call-unified]');
+        if (widget && !shell.contains(widget)) {
+            shell.appendChild(widget);
+            widget.addEventListener('digitalogic:call-error', function (event) {
+                showDigitsInlineMessage(form.closest('form'), event.detail, 'warning');
+            });
+        }
         var passkey = form.querySelector('.digits-form_passwordless_login');
         var login = form.closest('form') || form;
         var social = login.querySelector('.digits-social-logins-box');
         var disclosure = (social && social.querySelector('.dg-passkey-options')) || form.querySelector('.dg-passkey-options');
-        if (!disclosure && (passkey || (widget && !widget.dataset.dgBrandingMounted))) {
+        if (!disclosure && passkey) {
             disclosure = document.createElement('details');
             disclosure.className = 'dg-passkey-options';
             var summary = document.createElement('summary');
@@ -4000,20 +4145,6 @@
             passkey.type = 'button';
             passkey.textContent = getLabel('passkeyLogin', 'Sign in with a passkey');
             disclosure.appendChild(passkey);
-        }
-        if (widget && widget.parentElement !== disclosure && !widget.dataset.dgBrandingMounted) {
-            disclosure.appendChild(widget);
-            widget.dataset.dgBrandingMounted = 'true';
-            var phone = widget.querySelector('[data-call-phone]');
-            // The call controller submits this field independently of the Digits form.
-            phone.setAttribute('form', 'digitalogic-call-verification-form');
-            call.addEventListener('click', function () {
-                var value = digitsIdentityValue(form);
-                var country = form.querySelector('[name="login_digt_countrycode"]');
-                if (!phone.value && country && normalizeCountryCode(country.value) === '+98' && /^9\d{9}$/.test(value)) {
-                    phone.value = '0' + value;
-                }
-            });
         }
     }
 

@@ -388,10 +388,16 @@ HTML;
 
         wp_add_inline_style(self::STYLE_HANDLE, self::dynamic_css());
 
+        $dependencies = [];
+        if ($is_login) {
+            $phone_library = 'assets/vendor/libphonenumber-js/libphonenumber-max.js';
+            wp_enqueue_script('digitalogic-login-phone', DIGITALOGIC_PLUGIN_URL . $phone_library, [], '1.13.16', true);
+            $dependencies[] = 'digitalogic-login-phone';
+        }
         wp_enqueue_script(
             self::SCRIPT_HANDLE,
             DIGITALOGIC_PLUGIN_URL . self::SCRIPT_FILE,
-            [],
+            $dependencies,
             (string) filemtime($script_path),
             true
         );
@@ -582,7 +588,7 @@ JS;
                 'requiredPassword' => 'Enter your password.',
                 'recaptchaUnavailable' => 'Login protection has not finished loading. Try again in a moment.',
                 'usernameEmailPhone' => 'Username, email, or mobile number',
-                'identityPlaceholder' => 'Username, email, or mobile number',
+                'identityPlaceholder' => 'Username, email, or phone number',
                 'password' => 'Password',
 				'skipPassword'         => 'Sign in without a password',
 				'passkeyOptions'       => 'Other sign-in options',
@@ -593,8 +599,17 @@ JS;
 				'otpResend'            => 'Resend code',
 				'heroSlide'            => 'Show image %d',
 				'skipPasswordCaption'  => 'Forgot your password?',
-				'smsIdentity'          => 'Enter the mobile number on your account to receive a code.',
+				'smsIdentity'          => 'Enter your email address or phone number to receive a code.',
 				'sendSmsCode'          => 'Send SMS code',
+				'sendEmailCode'        => 'Send email code',
+				'invalidEmail'         => 'Enter a valid email address.',
+				'emailCodeInstructions' => 'Enter the code sent to your email address.',
+				'smsCodeInstructions'   => 'Enter the code sent to your phone.',
+				'phoneChannel'         => 'How would you like to verify?',
+				'phoneSms'             => 'Text message',
+				'phoneCall'            => 'Phone call',
+				'invalidPhone'         => 'Enter a valid phone number with its area code.',
+				'callUnavailable'     => 'Call verification is temporarily unavailable.',
 				'continue'             => 'Continue',
 				'chooseCountryCode'    => 'Choose country code',
                 'showPassword' => 'Show password',
@@ -624,7 +639,7 @@ JS;
             'requiredPassword' => 'رمز عبور را وارد کنید.',
             'recaptchaUnavailable' => 'محافظت ورود هنوز کامل بارگذاری نشده است. چند لحظه دیگر دوباره تلاش کنید.',
             'usernameEmailPhone' => 'نام کاربری، ایمیل یا شماره موبایل',
-            'identityPlaceholder' => 'نام کاربری، ایمیل یا شماره موبایل',
+            'identityPlaceholder' => 'نام کاربری، ایمیل یا شماره تلفن',
             'password' => 'رمز عبور',
 			'skipPassword'         => 'ورود بدون رمز عبور',
 			'passkeyOptions'       => 'روش‌های دیگر ورود',
@@ -635,8 +650,17 @@ JS;
 			'otpResend'            => 'ارسال مجدد کد',
 			'heroSlide'            => 'نمایش تصویر %d',
 			'skipPasswordCaption'  => 'فراموشی رمز عبور',
-			'smsIdentity'          => 'برای دریافت کد، شماره موبایل حساب خود را وارد کنید.',
+			'smsIdentity'          => 'برای دریافت کد، ایمیل یا شماره تلفن خود را وارد کنید.',
 			'sendSmsCode'          => 'ارسال کد پیامکی',
+			'sendEmailCode'        => 'ارسال کد به ایمیل',
+			'invalidEmail'         => 'نشانی ایمیل معتبر وارد کنید.',
+			'emailCodeInstructions' => 'کد ارسال‌شده به ایمیل خود را وارد کنید.',
+			'smsCodeInstructions'   => 'کد پیامکی را وارد کنید.',
+			'phoneChannel'         => 'روش دریافت کد تأیید',
+			'phoneSms'             => 'پیامک',
+			'phoneCall'            => 'تماس تلفنی',
+			'invalidPhone'         => 'شماره تلفن معتبر را همراه با کد شهر وارد کنید.',
+			'callUnavailable'     => 'تأیید تلفنی موقتاً در دسترس نیست.',
 			'continue'             => 'ادامه',
 			'chooseCountryCode'    => 'انتخاب پیش‌شماره کشور',
             'showPassword' => 'نمایش رمز عبور',

@@ -74,6 +74,23 @@ async function render(page, direction, labels, native) {
     await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
 }
 
+async function checkOtpEditor(page, channel) {
+    await page.evaluate(name => {
+        const wrapper = document.querySelector('.digits-form_tab_wrapper');
+        wrapper.innerHTML = `<div class="digits-form_tab_container"><div class="digits-form_input_row"><div class="digits-form_input"><input name="${name}_otp" class="otp_input" maxlength="6"></div></div></div>`;
+    }, channel);
+    const cells = page.locator('.dg-otp-slot input');
+    await cells.first().waitFor();
+    assert.equal(await cells.count(), 6);
+    assert.equal(await cells.first().evaluate(element => getComputedStyle(element.closest('.dg-otp-editor')).direction), 'ltr');
+    const centers = await cells.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().left));
+    assert.ok(centers.every((left, index) => index === 0 || left - centers[index - 1] >= 20), 'All six digits have separate positions');
+    assert.ok(await cells.evaluateAll(elements => elements.every(element => parseFloat(getComputedStyle(element).borderTopWidth) >= 1)), 'Every empty OTP cell has a visible outline');
+    await cells.first().focus();
+    await page.keyboard.insertText('۱۲۳۴۵۶');
+    assert.equal(await page.locator(`input[name="${channel}_otp"]`).inputValue(), '123456');
+}
+
 (async () => {
     const browser = await chromium.launch(process.env.DG_BROWSER_CHANNEL ? { channel: process.env.DG_BROWSER_CHANNEL } : {});
     try {
@@ -99,6 +116,7 @@ async function render(page, direction, labels, native) {
                     assert.equal(await page.locator('input[name="digits_phone"]').evaluate(element => document.activeElement === element), true);
                     assert.equal(await page.getByRole('button', { name: 'Send SMS code', exact: true }).isVisible(), true);
                 }
+                await checkOtpEditor(page, native ? 'sms' : 'email');
                 await page.close();
             }
         }
