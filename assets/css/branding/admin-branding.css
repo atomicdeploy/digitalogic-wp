@@ -1342,10 +1342,23 @@ body.login .dg-otp-slot {
     position: relative;
     min-width: 0;
 }
-body.login .digits-form_input:has(> .dg-otp-editor) {
+body.login .digits-form_input:has(> .dg-otp-stack) {
     display: block !important;
     inline-size: 100% !important;
     min-inline-size: 0;
+}
+
+body.login .dg-otp-stack {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    inline-size: 100%;
+    min-inline-size: 0;
+    flex: 1 1 100%;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .dg-otp-stack > .dg-otp-editor {
+    margin-block: 0;
 }
 
 body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .dg-otp-editor .dg-otp-slot input {
@@ -1415,7 +1428,7 @@ body.login .dg-otp-slot:has(input:focus:placeholder-shown)::after {
 body.login [data-dg-otp-cursor="bar"] .dg-otp-slot:has(input:focus:placeholder-shown)::after {
     inset-block-end: auto;
     inset-block-start: 50%;
-    inline-size: 3px;
+    inline-size: 2px;
     block-size: 18px;
     border: 0;
     border-radius: 2px;
@@ -2234,7 +2247,7 @@ body.login .dg-otp-instructions {
     display: flex;
     align-items: center;
     gap: 7px;
-    margin: 0 0 8px;
+    margin: 0;
     color: var(--dg-text-soft);
     font: 500 14px/1.65 var(--dg-font, system-ui, sans-serif);
 }
@@ -2255,10 +2268,10 @@ body.login .dg-otp-instructions:has(> .digits-form_input_info:not(:empty)) > .dg
     display: none !important;
 }
 body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input_row:has(.dg-otp-editor)::before,
-body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input:has(> .dg-otp-editor)::before {
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input:has(> .dg-otp-stack)::before {
     content: none !important;
 }
-body.login .digits-form_input:has(> .dg-otp-editor) > :is(.digits-form_input_info:empty, .digits-field_icon, i, .dg-auth-icon) {
+body.login .digits-form_input:has(> .dg-otp-stack) > :is(.digits-form_input_info:empty, .digits-field_icon, i, .dg-auth-icon) {
     display: none !important;
 }
 body.login .dg-otp-step .digits-form_input_row:has(.dg-otp-editor) {
@@ -2266,7 +2279,7 @@ body.login .dg-otp-step .digits-form_input_row:has(.dg-otp-editor) {
     border: 0 !important;
     background: transparent !important;
 }
-body.login .dg-digits-login-shell .dg-otp-step:has(.digits-tab_active .dg-otp-editor + input[name="sms_otp"]) .digits-form_rememberme {
+body.login .dg-digits-login-shell .dg-otp-step:has(.digits-tab_active .dg-otp-stack + input[name="sms_otp"]) .digits-form_rememberme {
     margin-block-end: 36px !important;
 }
 body.login .dg-otp-step .digits-form_resend_otp {
