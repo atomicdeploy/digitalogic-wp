@@ -745,10 +745,6 @@ function rest_get_url_prefix() {
 function rest_url($path = '') {
     $GLOBALS['digitalogic_test_rest_url_calls']++;
 
-	if ( 'digitalogic/v1/login-slides' === $path ) {
-		return home_url( '/' . rest_get_url_prefix() . '/' . $path );
-	}
-
     throw new RuntimeException('The WooCommerce route matcher must not call rest_url().');
 }
 
@@ -1469,10 +1465,6 @@ function home_url($path = '') {
 
 function site_url($path = '') {
     return 'https://digitalogic.test/' . ltrim((string) $path, '/');
-}
-
-function is_ssl(): bool {
-	return true;
 }
 
 function content_url($path = '') {
@@ -4369,6 +4361,7 @@ require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-coordinator
 require_once dirname(__DIR__) . '/includes/class-digitalogic-currency-admin-async.php';
 require_once dirname(__DIR__) . '/includes/class-command-dispatcher.php';
 require_once dirname(__DIR__) . '/includes/api/class-rest-api.php';
+require_once dirname(__DIR__) . '/includes/integrations/class-digitalogic-persian-time-formatter.php';
 require_once dirname(__DIR__) . '/includes/api/class-webhooks.php';
 require_once dirname(__DIR__) . '/includes/class-report-engine.php';
 require_once dirname( __DIR__ ) . '/includes/class-digitalogic-pricing-snapshot.php';
@@ -4394,3 +4387,4 @@ require_once dirname(__DIR__) . '/includes/cli/class-cli-commands.php';
 require_once dirname( __DIR__ ) . '/includes/cli/class-digitalogic-product-type-cache-cli.php';
 require_once dirname(__DIR__) . '/includes/cli/class-digitalogic-product-supplier-links-cli.php';
 require_once dirname(__DIR__) . '/includes/cli/class-digitalogic-seo-monitor-status-cli.php';
+
