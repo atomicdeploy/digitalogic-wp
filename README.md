@@ -317,6 +317,10 @@ guessing product ownership or creating new variable families. See
 
 ### Authentication
 
+See the [Digitalogic authentication diagrams](docs/AUTHENTICATION-FLOW.md) for
+the customer sign-in, signup, and recovery paths, including call verification
+and the return to Git.
+
 Interactive customers use the canonical same-origin `/login/` flow. Safe GET
 requests to `wp-login.php` retain their supported action and redirect arguments
 while redirecting to that route; login POSTs still terminate in WordPress so
