@@ -561,6 +561,8 @@ JS;
 
         $config['labels'] = self::client_labels();
 		if ( $is_login ) {
+			$config['showLoginThemeSwitcher'] = (bool) apply_filters( 'digitalogic_login_show_theme_switcher', false );
+			$config['otpCursor']          = 'circle' === apply_filters( 'digitalogic_otp_cursor', 'bar' ) ? 'circle' : 'bar';
 			$config['emailDomainNonce']   = wp_create_nonce( 'digitalogic_email_domain' );
 			$config['loginSlidesUrl']     = rest_url( 'digitalogic/v1/login-slides' );
 			$config['authWebSocket']      = class_exists( 'Digitalogic_WebSocket' ) ? Digitalogic_WebSocket::instance()->get_public_client_config() : array();
@@ -589,6 +591,8 @@ JS;
                 'recaptchaUnavailable'  => 'Login protection has not finished loading. Try again in a moment.',
                 'usernameEmailPhone'    => 'Username, email, or mobile number',
                 'identityPlaceholder'   => 'Username, email, or phone number',
+                'contactPlaceholder'    => 'Email address or phone number',
+                'phonePlaceholder'      => 'Phone number',
                 'password'              => 'Password',
 				'skipPassword'          => 'Sign in without a password',
 				'passkeyOptions'        => 'Other sign-in options',
@@ -602,6 +606,10 @@ JS;
 				'smsIdentity'           => 'Enter your email address or phone number to receive a code.',
 				'sendSmsCode'           => 'Send SMS code',
 				'sendEmailCode'         => 'Send email code',
+				'enterPassword'         => 'Enter password',
+				'getCallCode'           => 'Get call code',
+				'continueBySms'         => 'Continue by SMS',
+				'verifyCode'            => 'Verify code',
 				'invalidEmail'          => 'Enter a valid email address.',
 				'emailCodeInstructions' => 'Enter the code sent to your email address.',
 				'smsCodeInstructions'   => 'Enter the code sent to your phone.',
@@ -609,7 +617,7 @@ JS;
 				'phoneSms'              => 'Text message',
 				'phoneCall'             => 'Phone call',
 				'invalidPhone'          => 'Enter a valid phone number with its area code.',
-				'callUnavailable'       => 'Call verification is temporarily unavailable.',
+				'callLoadFailed'        => 'The call verification controls did not load. Reload this page and try again.',
 				'continue'              => 'Continue',
 				'chooseCountryCode'     => 'Choose country code',
                 'showPassword'          => 'Show password',
@@ -640,6 +648,8 @@ JS;
             'recaptchaUnavailable'  => 'محافظت ورود هنوز کامل بارگذاری نشده است. چند لحظه دیگر دوباره تلاش کنید.',
             'usernameEmailPhone'    => 'نام کاربری، ایمیل یا شماره موبایل',
             'identityPlaceholder'   => 'نام کاربری، ایمیل یا شماره تلفن',
+            'contactPlaceholder'    => 'ایمیل یا شماره تلفن',
+            'phonePlaceholder'      => 'شماره تلفن',
             'password'              => 'رمز عبور',
 			'skipPassword'          => 'ورود بدون رمز عبور',
 			'passkeyOptions'        => 'روش‌های دیگر ورود',
@@ -649,10 +659,14 @@ JS;
 			'otpIncomplete'         => 'کد تأیید را کامل وارد کنید.',
 			'otpResend'             => 'ارسال مجدد کد',
 			'heroSlide'             => 'نمایش تصویر %d',
-			'skipPasswordCaption'   => 'فراموشی رمز عبور',
+			'skipPasswordCaption'   => 'رمز خود را فراموش کرده اید؟',
 			'smsIdentity'           => 'برای دریافت کد، ایمیل یا شماره تلفن خود را وارد کنید.',
 			'sendSmsCode'           => 'ارسال کد پیامکی',
 			'sendEmailCode'         => 'ارسال کد به ایمیل',
+			'enterPassword'         => 'وارد کردن رمز عبور',
+			'getCallCode'           => 'دریافت کد تماس',
+			'continueBySms'         => 'ادامه با پیامک',
+			'verifyCode'            => 'تأیید کد',
 			'invalidEmail'          => 'نشانی ایمیل معتبر وارد کنید.',
 			'emailCodeInstructions' => 'کد ارسال‌شده به ایمیل خود را وارد کنید.',
 			'smsCodeInstructions'   => 'کد پیامکی را وارد کنید.',
@@ -660,7 +674,7 @@ JS;
 			'phoneSms'              => 'پیامک',
 			'phoneCall'             => 'تماس تلفنی',
 			'invalidPhone'          => 'شماره تلفن معتبر را همراه با کد شهر وارد کنید.',
-			'callUnavailable'       => 'تأیید تلفنی موقتاً در دسترس نیست.',
+			'callLoadFailed'        => 'بخش تأیید تلفنی بارگذاری نشد. صفحه را تازه‌سازی کنید و دوباره تلاش کنید.',
 			'continue'              => 'ادامه',
 			'chooseCountryCode'     => 'انتخاب پیش‌شماره کشور',
             'showPassword'          => 'نمایش رمز عبور',

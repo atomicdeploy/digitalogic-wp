@@ -74,7 +74,7 @@ final class Digitalogic_Call_Verification {
 		add_filter( 'rest_post_dispatch', array( $this, 'add_no_store_headers' ), 10, 3 );
 		add_action( 'login_enqueue_scripts', array( $this, 'enqueue_assets' ), 40 );
 		add_action( 'wp_enqueue_scripts', array( $this, 'maybe_enqueue_account_assets' ), 40 );
-		add_action( 'login_footer', array( $this, 'render_login_verification' ) );
+		add_action( 'digitalogic_branded_login_content', array( $this, 'render_login_verification' ) );
 		add_action( 'wp_footer', array( $this, 'render_sidebar_login_verification' ), 5 );
 		add_action( 'woocommerce_after_edit_account_form', array( $this, 'render_account_contacts' ) );
 		add_action( 'show_user_profile', array( $this, 'render_admin_contacts' ) );
@@ -732,7 +732,7 @@ final class Digitalogic_Call_Verification {
 
 		if ( $user instanceof WP_User ) {
 			wp_set_current_user( $user->ID, $user->user_login );
-			wp_set_auth_cookie( $user->ID, false, is_ssl() );
+			wp_set_auth_cookie( $user->ID, true === $request->get_param( 'rememberme' ), is_ssl() );
 			do_action( 'wp_login', $user->user_login, $user );
 
 			return new WP_REST_Response(
@@ -1568,7 +1568,7 @@ final class Digitalogic_Call_Verification {
 	 * Render the login alternative without modifying the Digits plugin.
 	 */
 	public function render_login_verification(): void {
-		if ( 'login' !== ( $GLOBALS['action'] ?? '' ) || ! self::is_configured() ) {
+		if ( ! self::is_configured() ) {
 			return;
 		}
 

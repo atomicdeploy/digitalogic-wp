@@ -66,6 +66,20 @@ if (!function_exists('login_footer')) {
         $GLOBALS['digitalogic_test_login_footer_input'] = (string) $input_id;
         $GLOBALS['digitalogic_test_login_footer_filters'] =
             $GLOBALS['digitalogic_test_filters']['login_display_language_dropdown'] ?? [];
+        $GLOBALS['digitalogic_test_login_language_args'] =
+            apply_filters('login_language_dropdown_args', ['selected' => determine_locale()]);
+    }
+}
+
+if (!function_exists('get_available_languages')) {
+    function get_available_languages() {
+        return ['fa_IR', 'de_DE'];
+    }
+}
+
+if (!function_exists('get_site_transient')) {
+    function get_site_transient($name) {
+        return $GLOBALS['digitalogic_test_site_transients'][$name] ?? false;
     }
 }
 
@@ -91,6 +105,19 @@ final class AdminBrandingAuthTest extends TestCase {
         $this->assertSame('https://digitalogic.test/login/', $config['loginUrl']);
         $this->assertSame('https://digitalogic.test/' . rest_get_url_prefix() . '/digitalogic/v1/login-slides', $config['loginSlidesUrl']);
         $this->assertSame(array(), $config['rememberedAccount']);
+        $this->assertFalse($config['showLoginThemeSwitcher']);
+    }
+
+    public function test_theme_switcher_can_be_enabled_while_the_language_switcher_stays_off(): void {
+        $callback = static fn() => true;
+        add_filter('digitalogic_login_show_theme_switcher', $callback);
+        try {
+            $config = new ReflectionMethod(Digitalogic_Plugin_Admin_Branding::class, 'client_config');
+            $this->assertTrue($config->invoke(null, true, false)['showLoginThemeSwitcher']);
+            $this->test_custom_footer_suppresses_remote_language_discovery_only_while_rendering();
+        } finally {
+            remove_filter('digitalogic_login_show_theme_switcher', $callback);
+        }
     }
 
     public function test_recovery_identity_labels_match_the_wordpress_backend(): void {
@@ -137,6 +164,28 @@ final class AdminBrandingAuthTest extends TestCase {
         $this->assertEmpty(
             $GLOBALS['digitalogic_test_filters']['login_display_language_dropdown'] ?? []
         );
+    }
+
+    public function test_enabled_language_switcher_uses_only_installed_languages_even_on_a_cache_miss(): void {
+        $callback = static fn() => true;
+        add_filter('digitalogic_login_show_language_switcher', $callback);
+        try {
+            $method = new ReflectionMethod(Digitalogic_Plugin_Auth_Routes::class, 'render_login_footer');
+            $method->invoke(null);
+
+            $args = $GLOBALS['digitalogic_test_login_language_args'];
+            $this->assertEmpty($GLOBALS['digitalogic_test_login_footer_filters']);
+            $this->assertSame(['fa_IR', 'de_DE'], $args['languages']);
+            $this->assertFalse($args['show_available_translations']);
+            $this->assertNotEmpty($args['translations'], 'An empty array would trigger remote discovery.');
+            $this->assertSame('en_US', $args['selected']);
+            $this->assertEmpty($GLOBALS['digitalogic_test_filters']['login_language_dropdown_args'] ?? []);
+
+            $config = new ReflectionMethod(Digitalogic_Plugin_Admin_Branding::class, 'client_config');
+            $this->assertFalse($config->invoke(null, true, false)['showLoginThemeSwitcher']);
+        } finally {
+            remove_filter('digitalogic_login_show_language_switcher', $callback);
+        }
     }
 
     private function raw_digits_transition(): string {

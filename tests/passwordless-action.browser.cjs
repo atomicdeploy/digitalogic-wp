@@ -6,19 +6,39 @@ const { chromium } = require('playwright-core');
 
 const branding = path.join(__dirname, '..', 'assets', 'js', 'branding', 'admin-branding.js');
 const styles = path.join(__dirname, '..', 'assets', 'css', 'branding', 'admin-branding.css');
+const phoneLibrary = path.join(__dirname, '..', 'assets', 'vendor', 'libphonenumber-js', 'libphonenumber-max.js');
 
 async function checkAction(page, labels, direction) {
     const action = page.locator('.dg-passwordless-action:visible');
     assert.equal(await action.count(), 1);
     const button = action.getByRole('button', { name: labels.skipPassword, exact: true });
     const caption = action.getByText(labels.skipPasswordCaption, { exact: true });
-    assert.equal(await caption.evaluate(element => element.closest('button')?.classList.contains('dg-skip-password')), true);
-    assert.equal(await caption.locator('svg.dg-auth-icon--reset').count(), 1);
+    assert.equal(await caption.evaluate(element => element.tagName === 'P' && !element.closest('button')), true);
+    assert.equal(await caption.locator('svg').count(), 0);
     assert.equal(await button.getAttribute('aria-describedby'), await caption.getAttribute('id'));
     assert.equal(await page.getByRole('button', { name: labels.skipPasswordCaption, exact: true }).count(), 0);
     assert.equal(await page.getByRole('link', { name: labels.skipPasswordCaption, exact: true }).count(), 0);
 
-    assert.equal(await caption.evaluate(element => element.getBoundingClientRect().top >= element.previousElementSibling.getBoundingClientRect().bottom), true);
+    const layout = await caption.evaluate(element => {
+        const button = element.nextElementSibling;
+        const previousAction = element.parentElement.previousElementSibling;
+        const captionRect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        const colorProbe = document.createElement('span');
+        colorProbe.style.color = 'var(--dg-text)';
+        element.appendChild(colorProbe);
+        const mainTextColor = style.color === getComputedStyle(colorProbe).color;
+        colorProbe.remove();
+        return {
+            aboveButton: button?.matches('.dg-skip-password') && captionRect.bottom < button.getBoundingClientRect().top,
+            spaceAbove: captionRect.top - previousAction.getBoundingClientRect().bottom,
+            fontSize: parseFloat(style.fontSize),
+            mainTextColor
+        };
+    });
+    assert.ok(layout.aboveButton, 'The caption must be a separate element visibly above the button');
+    assert.ok(layout.spaceAbove >= 18, 'Give the caption room after the preceding action');
+    assert.ok(layout.fontSize >= 15 && layout.mainTextColor, 'The caption should be clearly legible');
     await checkIconAndLabel(button, direction);
     return button;
 }
@@ -43,8 +63,8 @@ async function checkIconAndLabel(button, direction) {
     assert.equal(layout.iconOnRight, direction === 'rtl');
 }
 
-async function render(page, direction, labels, native) {
-    await page.route('https://digitalogic.test/login/', route => route.fulfill({
+async function render(page, direction, labels, native, search = '') {
+    await page.route('https://digitalogic.test/login/**', route => route.fulfill({
         contentType: 'text/html; charset=utf-8',
         body: `<!doctype html><html lang="${direction === 'rtl' ? 'fa' : 'en'}" dir="${direction}">
             <body class="login"><div id="login"><div class="dg-digits-login-shell">
@@ -53,36 +73,330 @@ async function render(page, direction, labels, native) {
                 <div class="digits-form_heading"></div>
                 <div class="digits-form_tab_wrapper">
                   <div class="digits-form_tab_container" ${native ? 'hidden' : ''}>
-                    <div class="digits-form_tab_body digits-tab_active"><input name="digits_phone"></div>
-                    <div class="digits-form_tab_body"><input name="digits_email"></div>
+                    <div class="digits-form_tab_body digits-tab_active">
+                        <div class="digits-mobile_wrapper">
+                        <div class="digits-form_countrycode"><input name="login_digt_countrycode" value="+98"></div>
+                        <input name="digits_phone">
+                      </div>
+                    </div>
+                    <div class="digits-form_tab_body"><div class="digits-form_input_row"><input name="digits_email"></div></div>
                   </div>
-                  ${native ? `<div class="digits-form_tab_container">
-                    <input type="password" value="fixture">
+                  ${native ? `<template id="native-password-step"><div class="digits-form_tab_container">
+                    <div class="digits-form_input_row">
+                      <div class="digits-form_input digits_password_inp_row">
+                        <input name="password" type="password" required>
+                        <button class="digits_password_eye" type="button">Vendor eye</button>
+                      </div>
+                    </div>
                     <button class="digits-form_tab-item" data-value="otp" type="button">SMS tab</button>
                     <button class="digits-form_otp_selector" data-type="sms_otp" type="button">Request SMS</button>
                     <button class="digits-form_show_forgot_password" type="button">${labels.skipPasswordCaption}</button>
-                  </div>` : ''}
+                  </div></template>` : ''}
+                </div>
+                <div class="digits_form-init_step_data">
+                  <label class="digits-form_rememberme"><input class="digits_login_remember_me" name="rememberme" value="1" type="checkbox">Remember me</label>
                 </div>
                 <button class="digits-form_submit-btn" type="submit"><span class="digits-form_button-text">Continue</span></button>
                 <button class="digits-form_passwordless_login" type="button">Passkey</button>
+                <div class="digits-social-logins-box">
+                  <div class="digits-use_social-logins"><span>Or continue with</span></div>
+                  <div class="digits-social-logins"><div id="digits_google_login"><span class="digits-social-text">Google</span></div></div>
+                </div>
               </div>
-            </form></div></div></body></html>`
+            </form><div class="dg-call-unified" data-call-unified data-call-available="true"><div data-call-instructions hidden><a data-call-dial href="tel:+982112345678">Call</a></div></div></div></div></body></html>`
     }));
-    await page.goto('https://digitalogic.test/login/');
+    await page.goto('https://digitalogic.test/login/' + search);
     await page.evaluate(labels => {
-        window.DigitalogicBranding = { labels };
-        document.querySelector('[data-value="otp"]')?.addEventListener('click', () => {
-            document.body.dataset.smsTabSelected = 'true';
-        });
+        window.DigitalogicBranding = {
+            labels,
+            otpCursor: 'bar',
+            ajaxUrl: '/email-domain',
+            emailDomainNonce: 'fixture',
+            rememberedAccounts: [{ login: 'known-user', avatar: '/known-avatar.svg' }]
+        };
     }, labels);
+    await page.route('https://digitalogic.test/known-avatar.svg', route => route.fulfill({
+        contentType: 'image/svg+xml',
+        body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path fill="blue" d="M0 0h32v32H0z"/></svg>'
+    }));
     await page.addStyleTag({ path: styles });
+    await page.addScriptTag({ path: phoneLibrary });
     await page.addScriptTag({ path: branding });
     await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
+    if (native) {
+        await page.evaluate(() => {
+            const template = document.getElementById('native-password-step');
+            template.replaceWith(template.content);
+            document.querySelector('[data-value="otp"]').addEventListener('click', () => {
+                document.body.dataset.smsTabSelected = 'true';
+            });
+        });
+    }
+}
+
+async function checkEmailGate(page, labels) {
+    const phone = page.locator('input[name="digits_phone"]');
+    const email = page.locator('input[name="digits_email"]');
+    const form = page.locator('form.digloginpage');
+    const primary = form.locator('.digits-form_login > .digits-form_submit-btn');
+    const status = form.locator('.dg-email-domain-status');
+    const colors = new Set();
+    let releaseSlow;
+    let serviceCalls = 0;
+    await page.route('https://digitalogic.test/email-domain', async route => {
+        const domain = new URLSearchParams(route.request().postData()).get('domain');
+        if (domain === 'slow.example') {
+            await new Promise(resolve => { releaseSlow = resolve; });
+            await route.fulfill({ json: { success: true, data: { valid: true } } });
+            return;
+        }
+        if (domain === 'retry.example' && ++serviceCalls === 1) {
+            await route.fulfill({ status: 503 });
+            return;
+        }
+        await route.fulfill({ json: { success: true, data: { valid: domain !== 'invalid.example' } } });
+    });
+    async function expectState(state, enabled) {
+        await status.and(page.locator(`[data-state="${state}"]`)).waitFor();
+        assert.equal(await primary.isEnabled(), enabled, state);
+        colors.add(await status.evaluate(element => getComputedStyle(element).color));
+    }
+    assert.equal(await primary.isDisabled(), true);
+    await phone.pressSequentially('09');
+    assert.equal(await phone.inputValue(), '9', 'The separate +98 prefix replaces the domestic zero as soon as it is unambiguous');
+    await phone.pressSequentially('12');
+    assert.equal(await phone.inputValue(), '912');
+    assert.equal(await phone.evaluate(input => input.selectionStart), 3);
+    assert.equal(await primary.isDisabled(), true);
+    await phone.pressSequentially('0000000');
+    assert.equal(await primary.isEnabled(), true);
+    assert.equal(await primary.innerText(), labels.sendSmsCode);
+    await phone.fill('۰۲۱');
+    assert.equal(await phone.inputValue(), '21', 'Iranian landlines also lose the domestic zero while incomplete');
+    assert.equal(await primary.isDisabled(), true);
+    await phone.fill('');
+    await phone.pressSequentially('0044');
+    assert.equal(await phone.inputValue(), '0044', 'Keep 00 available for an international number');
+    await phone.fill('+12025550123');
+    assert.equal(await primary.innerText(), labels.continueBySms);
+    await page.locator('input[name="dg_phone_channel"][value="call"]').check();
+    assert.equal(await primary.innerText(), labels.getCallCode);
+    await page.evaluate(() => {
+        window.DigitalogicCallLogin = { start(number) {
+            document.body.dataset.callNumber = number;
+            document.querySelector('[data-call-instructions]').hidden = false;
+            document.querySelector('.dg-digits-login-shell').classList.add('dg-call-code-active');
+            return true;
+        } };
+    });
+    const call = page.locator('input[name="dg_phone_channel"][value="call"]');
+    for (const [typed, expected] of [['+12025550123', '+12025550123'], ['+۹۸۹۱۲۰۰۰۰۰۰۰', '+989120000000']]) {
+        await phone.fill(typed);
+        assert.equal(await call.isEnabled(), true, typed);
+        await call.check();
+        assert.equal(await primary.innerText(), labels.getCallCode);
+        await primary.click();
+        assert.equal(await page.locator('body').getAttribute('data-call-number'), expected);
+        await page.locator('[data-call-instructions] input[name="rememberme"]').waitFor();
+        await page.evaluate(() => {
+            document.querySelector('[data-call-instructions]').hidden = true;
+            document.querySelector('.dg-digits-login-shell').classList.remove('dg-call-code-active');
+        });
+        assert.equal(await page.getByRole('checkbox', { name: 'Remember me' }).count(), 0);
+    }
+    await page.locator('input[name="dg_phone_channel"][value="sms"]').check();
+    assert.equal(await primary.innerText(), labels.sendSmsCode);
+    await phone.fill('+982112345678');
+    assert.equal(await primary.innerText(), labels.getCallCode);
+    await page.locator('[data-call-unified]').evaluate(widget => { widget.dataset.callAvailable = 'false'; });
+    await phone.fill('');
+    await phone.fill('+982112345678');
+    assert.equal(await primary.isDisabled(), true, 'A fixed line cannot submit when the call panel is unavailable');
+    await page.locator('[data-call-unified]').evaluate(widget => { widget.dataset.callAvailable = 'true'; });
+    await phone.fill('preview@');
+    assert.equal(await primary.isDisabled(), true);
+    await email.blur();
+    await expectState('format', false);
+    await email.fill('preview@slow.example');
+    await expectState('checking', false);
+    const slowRequest = page.waitForRequest(request => request.postData()?.includes('slow.example'));
+    await email.blur();
+    await slowRequest;
+    await form.evaluate(element => element.requestSubmit());
+    assert.equal(await form.locator('.dg-username-password-step').count(), 0);
+    await email.fill('preview@invalid.example');
+    await expectState('invalid', false);
+    releaseSlow();
+    await expectState('invalid', false);
+    assert.equal(await email.getAttribute('aria-invalid'), 'true');
+    await email.fill('preview@retry.example');
+    await expectState('unavailable', false);
+    await status.getByRole('button').click();
+    await expectState('valid', true);
+    assert.equal(await primary.innerText(), labels.enterPassword);
+    assert.equal(await email.getAttribute('aria-invalid'), 'false');
+    assert.equal(colors.size, 4);
+    await email.fill('preview');
+    assert.equal(await primary.isEnabled(), true);
+    await phone.fill('');
+    assert.equal(await primary.isDisabled(), true);
+}
+
+async function checkSmsAction(page, labels) {
+    let attempts = 0;
+    await page.route('https://digitalogic.test/wp-admin/admin-ajax.php', route => {
+        if (route.request().postData().includes('name="sms_otp"')) {
+            assert.match(route.request().postData(), /name="rememberme"\r\n\r\n1/);
+            attempts++;
+            if (attempts === 1) return route.fulfill({ status: 503, body: 'error' });
+            if (attempts === 2) return route.fulfill({ json: { success: false, data: { message: 'Code expired. Request a new code.' } } });
+            return route.fulfill({ json: { success: true, data: { redirect: '/complete' } } });
+        }
+        assert.doesNotMatch(route.request().postData(), /name="rememberme"/);
+        return route.fulfill({ json: {
+            success: true,
+            data: { resend_timer: 2, html: `<div class="digits-form_tab_container"><div class="digits-form_tab_body digits-tab_active">
+            <button type="button" class="digits-form_otp_selector" data-type="email_otp">Email</button>
+            <button type="button" class="digits-form_otp_selector" data-type="sms_otp">SMS</button>
+        </div></div>` }
+        } });
+    });
+    await page.route('https://digitalogic.test/complete', route => route.fulfill({ body: 'Signed in' }));
+    await page.evaluate(() => document.addEventListener('click', event => {
+        const choice = event.target.closest('.digits-form_otp_selector');
+        if (!choice) { return; }
+        document.body.dataset.selectedChannel = choice.dataset.type;
+        choice.parentElement.innerHTML = '<div class="digits-form_input_row"><div class="digits-form_input">' +
+            '<input name="sms_otp" class="otp_input" maxlength="6"><span class="digits-form_input_info">ⓘ</span>' +
+            '</div></div><button type="button" class="digits-form_resend_otp digits_resend_disabled">Resend</button>';
+    }));
+    await page.locator('input[name="digits_phone"]').fill('09120000000');
+    await page.getByRole('button', { name: labels.sendSmsCode, exact: true }).click();
+    const first = page.locator('.dg-otp-slot input').first();
+    await first.waitFor();
+    assert.equal(await page.locator('body').getAttribute('data-selected-channel'), 'sms_otp');
+    const caption = page.locator('.dg-otp-instructions');
+    assert.equal(await caption.locator('.digits-form_input_info').count(), 1);
+    await page.addStyleTag({ content: '#login .dg-digits-login-shell .digits-tab_active { display: flex !important; }' });
+    const captionBox = await caption.boundingBox();
+    const firstBox = await first.boundingBox();
+    const lastBox = await page.locator('.dg-otp-slot input').last().boundingBox();
+    assert.ok(captionBox.y + captionBox.height + 8 <= firstBox.y, 'Caption must stay above the code even in a flex provider tab');
+    assert.ok(Math.abs(firstBox.y - lastBox.y) < 1, 'Digits stay in one row');
+    const resend = page.locator('.dg-otp-resend');
+    await resend.and(page.locator('[aria-disabled="true"]')).waitFor();
+    assert.match(await resend.evaluate(el => getComputedStyle(el).backgroundImage), /conic-gradient/);
+    await page.waitForFunction(() => parseFloat(document.querySelector('.dg-otp-resend').style.getPropertyValue('--dg-resend-progress')) > 0);
+    await resend.and(page.locator('[aria-disabled="false"]')).waitFor();
+    assert.equal(await resend.evaluate(el => el.style.getPropertyValue('--dg-resend-progress')), '100%');
+    await page.getByRole('checkbox', { name: 'Remember me' }).check();
+    await first.focus();
+    await first.evaluate(el => {
+        const data = new DataTransfer();
+        data.setData('text/plain', '۱۲٣۴٥۶');
+        el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }));
+    });
+    const verify = page.getByRole('button', { name: labels.verifyCode, exact: true });
+    assert.equal(await verify.evaluate(el => document.activeElement === el), true);
+    await verify.click();
+    const alert = page.locator('.dg-otp-feedback');
+    await alert.waitFor();
+    assert.match(await alert.innerText(), /HTTP 503/);
+    assert.equal(await page.locator('.dg-otp-editor[aria-invalid]').count(), 0);
+    assert.equal(await page.locator('.dg-toast, .dig_popmessage').count(), 0);
+    await verify.click();
+    await page.locator('.dg-otp-editor[aria-invalid="true"]').waitFor();
+    assert.equal(await alert.innerText(), 'Code expired. Request a new code.');
+    assert.equal(await first.evaluate(el => document.activeElement === el), true);
+    assert.equal(await page.locator('.dg-toast, .dig_popmessage').count(), 0);
+    await verify.click();
+    await page.waitForURL('**/complete');
+}
+
+async function checkVerificationLabels(page, labels) {
+    const phone = page.locator('input[name="digits_phone"]');
+    const email = page.locator('input[name="digits_email"]');
+    const primary = page.locator('.digits-form_login > .digits-form_submit-btn');
+    for (const [field, value, expected, isPhone] of [
+        [phone, '', 'Continue'],
+        [phone, 'sample-user', 'Continue'],
+        [phone, '۰۹۱۲', 'Continue', true],
+        [phone, '۰۹۱۲۰۰۰۰۰۰۰', labels.sendSmsCode, true],
+        [phone, '۰۲۱۱۲۳۴۵۶۷۸', labels.getCallCode, true],
+        [phone, '+442079460018', labels.getCallCode, true],
+        [phone, '+12025550123', labels.continueBySms, true],
+        [phone, '+448001111', 'Continue', true],
+        [phone, '+989120000000', labels.sendSmsCode, true],
+        [phone, 'demo@', 'Continue'],
+        [email, 'demo@example.com', labels.sendEmailCode],
+        [email, 'demo', 'Continue'],
+        [phone, '', 'Continue']
+    ]) {
+        await field.fill(value);
+        assert.equal(await primary.innerText(), expected, value || '(empty identity)');
+        await checkIdentityPrompt(page, isPhone ? labels.phonePlaceholder : labels.contactPlaceholder);
+    }
+    await phone.fill('09120000000');
+    assert.equal(await primary.innerText(), labels.sendSmsCode);
+    await page.locator('.dg-country-trigger').click();
+    await page.locator('.dg-country-option[data-code="+1"]').click();
+    assert.equal(await primary.innerText(), 'Continue', 'The previous SMS label must clear on country changes');
+}
+
+async function checkIdentityPrompt(page, expected) {
+    const visibleIdentity = page.locator('input:is([name="digits_phone"], [name="digits_email"]):visible');
+    assert.equal(await visibleIdentity.getAttribute('placeholder'), expected);
+    assert.equal(await visibleIdentity.getAttribute('aria-label'), expected);
+}
+
+async function checkPasswordField(page, labels, touch) {
+    const field = page.locator('.dg-password-field:visible');
+    await field.waitFor({ timeout: 4000 });
+    const input = field.locator('input');
+    const toggle = field.getByRole('button');
+    assert.equal(await field.count(), 1);
+    assert.equal(await page.locator('.wp-hide-pw:visible, .digits_password_eye:visible').count(), 0);
+    await input.fill('layout-test');
+    await input.evaluate(element => element.setSelectionRange(2, 6, 'backward'));
+    assert.equal(await toggle.getAttribute('aria-label'), labels.showPassword);
+    if (touch) {
+        await toggle.tap();
+    } else {
+        await toggle.click();
+    }
+    assert.equal(await input.getAttribute('type'), 'text');
+    assert.equal(await toggle.getAttribute('aria-label'), labels.hidePassword);
+    const revealed = await input.evaluate(element => [
+        document.activeElement === element, element.selectionStart, element.selectionEnd, element.selectionDirection
+    ]);
+    assert.deepEqual(revealed, [true, 2, 6, 'backward']);
+    await input.press('Tab');
+    assert.ok(await toggle.evaluate(element => document.activeElement === element));
+    await page.keyboard.press('Space');
+    assert.equal(await input.getAttribute('type'), 'password');
+    assert.equal(await toggle.getAttribute('aria-label'), labels.showPassword);
+    assert.ok(await toggle.evaluate(element => document.activeElement === element));
+    assert.equal(await input.inputValue(), 'layout-test');
+    assert.equal(await input.evaluate(element => getComputedStyle(element).direction), 'ltr');
+    assert.ok(await toggle.evaluate(element => {
+        const button = element.getBoundingClientRect();
+        const icon = element.querySelector('svg').getBoundingClientRect();
+        const row = element.parentElement.getBoundingClientRect();
+        const center = rect => (rect.top + rect.bottom) / 2;
+        return Math.abs(center(icon) - center(button)) < 1 && Math.abs(center(button) - center(row)) < 1;
+    }));
+}
+
+async function checkAlternatives(page, visible) {
+    for (const selector of ['.digits-use_social-logins', '#digits_google_login', '.dg-passkey-options summary']) {
+        assert.equal(await page.locator(selector).isVisible(), visible, selector);
+    }
 }
 
 async function checkOtpEditor(page, channel) {
     await page.evaluate(name => {
         const wrapper = document.querySelector('.digits-form_tab_wrapper');
+        wrapper.closest('form').classList.remove('digits_form_index_section');
         wrapper.innerHTML = `<div class="digits-form_tab_container"><div class="digits-form_input_row"><div class="digits-form_input"><input name="${name}_otp" class="otp_input" maxlength="6"></div></div></div>`;
     }, channel);
     const cells = page.locator('.dg-otp-slot input');
@@ -93,59 +407,201 @@ async function checkOtpEditor(page, channel) {
     assert.ok(centers.every((left, index) => index === 0 || left - centers[index - 1] >= 20), 'All six digits have separate positions');
     assert.ok(await cells.evaluateAll(elements => elements.every(element => parseFloat(getComputedStyle(element).borderTopWidth) >= 1)), 'Every empty OTP cell has a visible outline');
     await cells.first().focus();
+    const form = page.locator('form.digloginpage');
+    const firstSlot = page.locator('.dg-otp-slot').first();
+    const cursor = () => firstSlot.evaluate(slot => {
+        const style = getComputedStyle(slot, '::after');
+        return { animation: style.animationName, height: style.height };
+    });
+    assert.equal(await form.getAttribute('data-dg-otp-cursor'), 'bar');
+    assert.deepEqual(await cursor(), { animation: 'dg-otp-bar-pulse', height: '18px' });
+    await form.evaluate(element => { element.dataset.dgOtpCursor = 'circle'; });
+    assert.deepEqual(await cursor(), { animation: 'dg-otp-caret', height: '12px' });
+    await form.evaluate(element => { element.dataset.dgOtpCursor = 'bar'; });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    assert.deepEqual(await cursor(), { animation: 'none', height: '18px' });
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    const entry = await cells.first().evaluate(cell => {
+        cell.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: '۱', cancelable: true }));
+        const roll = cell.nextElementSibling;
+        return [cell.value, roll?.textContent, roll?.getAttribute('aria-hidden'), roll?.firstElementChild?.getAnimations().length];
+    });
+    assert.deepEqual(entry, ['1', '1', 'true', 1]);
+    await firstSlot.locator('.dg-otp-roll').waitFor({ state: 'detached' });
+    await cells.first().focus();
+    const replacement = await cells.first().evaluate(cell => {
+        cell.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: '۲', cancelable: true }));
+        return [cell.value, cell.nextElementSibling?.textContent];
+    });
+    assert.deepEqual(replacement, ['2', '12']);
+    await page.keyboard.press('Backspace');
+    assert.equal(await cells.first().inputValue(), '');
+    assert.equal(await firstSlot.locator('.dg-otp-roll').count(), 0);
     await page.keyboard.insertText('۱۲۳۴۵۶');
     assert.equal(await page.locator(`input[name="${channel}_otp"]`).inputValue(), '123456');
+    assert.equal(await page.locator('.dg-otp-editor :focus').count(), 0);
+}
+
+async function checkLoginSwitchers(browser) {
+    for (const showTheme of [false, true]) {
+        for (const showLanguage of [false, true]) {
+            const page = await browser.newPage({ viewport: { width: 390, height: 800 } });
+            const language = '<div class="language-switcher"><form id="language-switcher" method="get">' +
+                '<select id="language-switcher-locales" name="wp_lang"><option value="fa_IR">فارسی</option>' +
+                '<option value="en_US">English</option></select><input type="hidden" name="redirect_to" value="/shop/">' +
+                '<input type="submit" value="Change"></form></div>';
+            await page.route('https://digitalogic.test/login/**', route => route.fulfill({
+                contentType: 'text/html; charset=utf-8',
+                body: '<html lang="fa" dir="rtl"><body class="login"><div id="login"></div>' +
+                    (showLanguage ? language : '') + '</body></html>'
+            }));
+            await page.goto('https://digitalogic.test/login/');
+            await page.evaluate(enabled => { window.DigitalogicBranding = { showLoginThemeSwitcher: enabled }; }, showTheme);
+            await page.addStyleTag({ path: styles });
+            await page.addScriptTag({ path: branding });
+            await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
+            const theme = page.locator('.dg-theme-toggle-button');
+            const picker = page.locator('.dg-language-trigger');
+            assert.equal(await theme.count(), Number(showTheme));
+            assert.equal(await picker.count(), Number(showLanguage));
+            if (showTheme) {
+                await theme.click();
+                assert.equal(await page.locator('html').getAttribute('data-dg-theme'), 'dark');
+                await theme.click();
+                assert.equal(await page.locator('html').getAttribute('data-dg-theme'), 'light');
+            }
+            if (showLanguage) {
+                await picker.click();
+                await page.locator('.dg-language-menu').getByRole('option', { name: 'English' }).click();
+                await page.waitForURL(url => url.searchParams.get('wp_lang') === 'en_US' &&
+                    url.searchParams.get('redirect_to') === '/shop/');
+            }
+            await page.close();
+        }
+    }
 }
 
 (async () => {
     const browser = await chromium.launch(process.env.DG_BROWSER_CHANNEL ? { channel: process.env.DG_BROWSER_CHANNEL } : {});
     try {
+        await checkLoginSwitchers(browser);
         for (const [direction, width, skipPassword, skipPasswordCaption] of [
-            ['rtl', 390, 'ورود بدون رمز عبور', 'فراموشی رمز عبور'],
+            ['rtl', 390, 'ورود بدون رمز عبور', 'رمز خود را فراموش کرده اید؟'],
             ['ltr', 1024, 'Sign in without a password', 'Forgot your password?']
         ]) {
-            const labels = { skipPassword, skipPasswordCaption, passkeyLogin: direction === 'rtl' ? 'ورود با کلید عبور' : 'Sign in with a passkey' };
+            const labels = {
+                skipPassword, skipPasswordCaption,
+                identityPlaceholder: direction === 'rtl' ? 'نام کاربری، ایمیل یا شماره تلفن' : 'Username, email, or phone number',
+                contactPlaceholder: direction === 'rtl' ? 'ایمیل یا شماره تلفن' : 'Email address or phone number',
+                phonePlaceholder: direction === 'rtl' ? 'شماره تلفن' : 'Phone number',
+                showPassword: direction === 'rtl' ? 'نمایش رمز عبور' : 'Show password',
+                hidePassword: direction === 'rtl' ? 'پنهان کردن رمز عبور' : 'Hide password',
+                requiredPassword: direction === 'rtl' ? 'رمز عبور را وارد کنید.' : 'Enter your password.',
+                passkeyLogin: direction === 'rtl' ? 'ورود با کلید عبور' : 'Sign in with a passkey',
+                sendSmsCode: direction === 'rtl' ? 'ارسال کد پیامکی' : 'Send SMS code',
+                sendEmailCode: direction === 'rtl' ? 'ارسال کد به ایمیل' : 'Send email code',
+                enterPassword: direction === 'rtl' ? 'وارد کردن رمز عبور' : 'Enter password',
+                getCallCode: direction === 'rtl' ? 'دریافت کد تماس' : 'Get call code',
+                continueBySms: direction === 'rtl' ? 'ادامه با پیامک' : 'Continue by SMS',
+                verifyCode: direction === 'rtl' ? 'تأیید کد' : 'Verify code'
+            };
             for (const native of [true, false]) {
-                const page = await browser.newPage({ viewport: { width, height: 800 } });
+                const page = await browser.newPage({ viewport: { width, height: 800 }, hasTouch: direction === 'rtl' });
                 await render(page, direction, labels, native);
+                await checkAlternatives(page, !native);
                 if (!native) {
+                    const remember = page.getByRole('checkbox', { name: 'Remember me' });
+                    assert.equal(await remember.count(), 0);
+                    await checkIdentityPrompt(page, labels.identityPlaceholder);
+                    const identity = page.locator('input[name="digits_phone"]');
+                    await identity.fill('۰۹۱۲');
+                    await checkIdentityPrompt(page, labels.phonePlaceholder);
+                    await identity.fill('');
+                    await checkIdentityPrompt(page, labels.identityPlaceholder);
                     await page.locator('.dg-passkey-options summary').click();
                     await checkIconAndLabel(page.getByRole('button', { name: labels.passkeyLogin, exact: true }), direction);
                     await page.locator('input[name="digits_phone"]').fill('fixture-user');
-                    await page.getByRole('button', { name: 'Continue', exact: true }).click();
-                    const eye = page.locator('.dg-username-password-toggle');
-                    const password = page.locator('.dg-username-password-input');
-                    await password.fill('layout-test');
-                    for (const type of ['text', 'password']) {
-                        await eye.click();
-                        await page.waitForFunction(value => document.querySelector('.dg-username-password-input').type === value, type);
-                        assert.equal(await password.evaluate(e => getComputedStyle(e).direction), 'ltr');
-                        const eyeLayout = await eye.evaluate(e => {
-                            const button = e.getBoundingClientRect();
-                            const icon = e.querySelector('svg').getBoundingClientRect();
-                            const row = e.parentElement.getBoundingClientRect();
-                            const center = rect => (rect.top + rect.bottom) / 2;
-                            return [Math.abs(center(icon) - center(button)), Math.abs(center(button) - center(row)), getComputedStyle(e).color];
-                        });
-                        assert.ok(eyeLayout[0] < 1 && eyeLayout[1] < 1, 'Password eye is centered vertically');
-                        assert.notEqual(eyeLayout[2], 'rgb(0, 0, 0)');
-                    }
+                    await page.getByRole('button', { name: labels.enterPassword, exact: true }).click();
+                    await page.locator('.dg-username-password-step').getByRole('checkbox', { name: 'Remember me' }).check();
+                    await checkAlternatives(page, false);
+                    const profile = page.locator('.dg-username-login-summary');
+                    const avatar = profile.locator('.dg-username-login-avatar');
+                    assert.equal(await avatar.locator('img').count(), 0);
+                    assert.equal(await avatar.locator('svg').isVisible(), true);
+                    await page.locator('.dg-username-login-back').click();
+                    assert.equal(await remember.count(), 0);
+                    await checkAlternatives(page, true);
+                    await page.locator('input[name="digits_phone"]').fill('known-user');
+                    await page.getByRole('button', { name: labels.enterPassword, exact: true }).click();
+                    await avatar.locator('img').waitFor();
+                    assert.equal(await avatar.locator('svg').isVisible(), false);
+                    const layout = await profile.evaluate(element => {
+                        const avatar = element.querySelector('.dg-username-login-avatar');
+                        const name = element.querySelector('.dg-username-login-value');
+                        const rect = avatar.getBoundingClientRect();
+                        const label = name.getBoundingClientRect();
+                        return {
+                            above: rect.bottom < label.top,
+                            centered: Math.abs((rect.left + rect.right - label.left - label.right) / 2) < 1,
+                            size: rect.width,
+                            radius: getComputedStyle(avatar).borderRadius
+                        };
+                    });
+                    assert.deepEqual(layout, { above: true, centered: true, size: 64, radius: '50%' });
                 }
+                await checkPasswordField(page, labels, direction === 'rtl');
+                const password = page.locator('input.dg-password-input:visible');
+                await password.fill('   ');
+                await password.press('Enter');
+                assert.equal(await page.locator('.dg-digits-inline-message').innerText(), labels.requiredPassword);
+                assert.ok(await password.evaluate(element => document.activeElement === element));
+                await password.fill('layout-test');
                 const button = await checkAction(page, labels, direction);
                 await button.click();
+                await checkAlternatives(page, false);
                 if (native) {
                     assert.equal(await page.locator('body').getAttribute('data-sms-tab-selected'), 'true');
                     assert.equal(await page.locator('input[type="password"]').inputValue(), '');
                 } else {
+                    assert.equal(await page.getByRole('checkbox', { name: 'Remember me' }).count(), 0);
                     assert.equal(await page.locator('form').getAttribute('data-dg-sms-identity'), 'true');
                     assert.equal(await page.locator('input[name="digits_phone"]').evaluate(element => document.activeElement === element), true);
-                    assert.equal(await page.getByRole('button', { name: 'Send SMS code', exact: true }).isVisible(), true);
+                    await checkIdentityPrompt(page, labels.contactPlaceholder);
+                    await checkVerificationLabels(page, labels);
+                    await page.locator('.dg-auth-back').click();
+                    await checkAlternatives(page, true);
+                    await checkIdentityPrompt(page, labels.phonePlaceholder);
+                    assert.equal(await page.locator('.dg-auth-back').isVisible(), false);
+                    assert.equal(await page.locator('.digits-form_tab_container').count(), 1, 'Digits must have only the identity tab after returning');
+                    await page.locator('input[name="digits_phone"]').fill('known-user');
+                    await page.getByRole('button', { name: labels.enterPassword, exact: true }).click();
+                    await page.locator('.dg-skip-password:visible').click();
                 }
                 await checkOtpEditor(page, native ? 'sms' : 'email');
+                assert.equal(await page.locator('.digits-form_login > .digits-form_submit-btn').innerText(), labels.verifyCode);
+                await checkAlternatives(page, false);
                 await page.close();
             }
+            const recovery = await browser.newPage({ viewport: { width, height: 800 } });
+            await render(recovery, direction, labels, false, '?recover=1');
+            await checkAlternatives(recovery, false);
+            await checkIdentityPrompt(recovery, labels.contactPlaceholder);
+            await recovery.locator('.dg-auth-back').click();
+            await checkAlternatives(recovery, true);
+            await checkIdentityPrompt(recovery, labels.identityPlaceholder);
+            assert.equal(await recovery.locator('.dg-auth-back').isVisible(), false);
+            assert.equal(new URL(recovery.url()).searchParams.has('recover'), false);
+            await recovery.close();
+            const emailGate = await browser.newPage({ viewport: { width, height: 800 } });
+            await render(emailGate, direction, labels, false);
+            await checkEmailGate(emailGate, labels);
+            await emailGate.close();
+            const smsAction = await browser.newPage({ viewport: { width, height: 800 } });
+            await render(smsAction, direction, labels, false);
+            await checkSmsAction(smsAction, labels);
+            await smsAction.close();
         }
-        console.log('Passwordless caption, icon spacing, and SMS entry passed in RTL and LTR.');
+        console.log('Passwordless actions, OTP, and first-step-only sign-in options passed in RTL and LTR.');
     } finally {
         await browser.close();
     }

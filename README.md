@@ -74,6 +74,16 @@
 - WordPress Admin Bar integration with quicklinks to all plugin pages
 - Persian (primary) and English (secondary) i18n support
 
+The branded login and registration pages leave both switchers off by default.
+To opt in, add either line to a site plugin or must-use plugin:
+
+```php
+add_filter( 'digitalogic_login_show_theme_switcher', '__return_true' );
+add_filter( 'digitalogic_login_show_language_switcher', '__return_true' );
+```
+
+The language picker lists installed WordPress languages without contacting WordPress.org during login.
+
 ### ⚡ WooCommerce HPOS Compatible
 - Full support for High-Performance Order Storage (HPOS)
 - Compatible with WooCommerce 8.2+ custom order tables
@@ -306,6 +316,10 @@ guessing product ownership or creating new variable families. See
 - `GET /wp-json/digitalogic/v1/export?format=excel` - Export products as Excel (XLSX) with custom template
 
 ### Authentication
+
+See the [Digitalogic authentication diagrams](docs/AUTHENTICATION-FLOW.md) for
+the customer sign-in, signup, and recovery paths, including call verification
+and the return to Git.
 
 Interactive customers use the canonical same-origin `/login/` flow. Safe GET
 requests to `wp-login.php` retain their supported action and redirect arguments

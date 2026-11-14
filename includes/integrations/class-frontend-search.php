@@ -56,6 +56,13 @@ class Digitalogic_Frontend_Search {
 			return;
 		}
 
+		wp_enqueue_style(
+			'digitalogic-frontend-search',
+			DIGITALOGIC_PLUGIN_URL . 'assets/css/frontend-search.css',
+			array(),
+			filemtime( DIGITALOGIC_PLUGIN_DIR . 'assets/css/frontend-search.css' ) ?: DIGITALOGIC_VERSION
+		);
+
 		wp_enqueue_script(
 			'digitalogic-frontend-search-ws',
 			DIGITALOGIC_PLUGIN_URL . 'assets/js/frontend-search-ws.js',

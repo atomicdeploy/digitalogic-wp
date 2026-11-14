@@ -113,6 +113,7 @@ function createHarness(options) {
     const window = {
         DigitalogicBranding: config,
         libphonenumber: options.phoneNumbers,
+        clearTimeout() {},
         URL,
         location: { href: options.locationHref || 'https://digitalogic.test/login/' }
     };
@@ -174,7 +175,11 @@ test('a successful Digits login resumes its same-site OpenID request with the or
     target.searchParams.set('response_type', 'code');
     target.searchParams.set('state', 'probe+state/&=%');
     const hidden = {value: target.href};
-    const form = {offsetWidth: 300, matches: () => true, closest: () => ({}), querySelector: () => hidden};
+    const feedback = { classList: { toggle() {} } };
+    const form = {offsetWidth: 300, matches: () => true, closest: () => ({}),
+        querySelector: selector => selector === 'input[name="digits_redirect_page"]' ? hidden :
+            selector === '.dg-digits-inline-message' ? feedback : null,
+        querySelectorAll: () => []};
     document.activeElement = {closest: () => form};
     let guarded;
     window.jQuery = {ajax(settings) { guarded = settings; }};
@@ -227,7 +232,7 @@ test('client validation rejection does not schedule a misleading registration ti
 test('skip password selects the native SMS tab without sending the typed password', () => {
     let update;
     const harness = createHarness({
-        labels: {skipPassword: 'ورود بدون رمز عبور', skipPasswordCaption: 'فراموشی رمز عبور'},
+        labels: {skipPassword: 'ورود بدون رمز عبور', skipPasswordCaption: 'رمز خود را فراموش کرده اید؟'},
         MutationObserver: class {
             constructor(callback) { update = callback; }
             observe() {}
@@ -256,7 +261,8 @@ test('skip password selects the native SMS tab without sending the typed passwor
     const form = {
         dataset: {},
         classList: fakeClassList(),
-        querySelector: (selector) => selector === '.digits-form_tab_wrapper' ? wrapper : primary,
+        querySelector: (selector) => selector === '.digits-form_tab_wrapper' ? wrapper : (selector === '.digits-form_rememberme' ? null : primary),
+        closest: () => null,
         querySelectorAll: (selector) => selector.includes('_otp') ? [] : [password],
         addEventListener() {}
     };
@@ -265,14 +271,13 @@ test('skip password selects the native SMS tab without sending the typed passwor
     harness.window.addEventListener = () => {};
     harness.document.querySelectorAll = (selector) => selector === '.dg-digits-login-shell form' ? [form] : [];
     harness.hooks.normalizeAuthChrome();
-    const [skip] = action.children;
-    const [icon, copy] = skip.children;
-    const [label, caption] = copy.children;
+    const [caption, skip] = action.children;
+    const [icon, label] = skip.children;
     assert.equal(skip.type, 'button');
     assert.equal(icon.tagName, 'svg');
     assert.equal(label.textContent, 'ورود بدون رمز عبور');
-    assert.equal(caption.tagName, 'span');
-    assert.equal(caption.textContent, 'فراموشی رمز عبور');
+    assert.equal(caption.tagName, 'p');
+    assert.equal(caption.textContent, 'رمز خود را فراموش کرده اید؟');
     assert.equal(skip.attributes.get('aria-describedby'), caption.id);
     assert.equal(action.hidden, true);
     password.offsetWidth = 200;
@@ -286,7 +291,7 @@ test('skip password selects the native SMS tab without sending the typed passwor
     assert.equal(action.hidden, true);
 });
 
-test('WebOTP can receive the code before the SMS response and submits once the Digits field is ready', async () => {
+test('WebOTP fills a code received before the SMS response without skipping Remember me', async () => {
     let receive;
     let submitted = 0;
     let request;
@@ -306,6 +311,7 @@ test('WebOTP can receive the code before the SMS response and submits once the D
         matches: () => true,
         closest: () => ({}),
         offsetWidth: 200,
+        querySelector: (selector) => selector.includes('rememberme') ? {} : null,
         querySelectorAll: (selector) => selector.includes('sms_otp') ? [otp] : [primary]
     };
     harness.document.activeElement = {closest: () => form};
@@ -326,7 +332,7 @@ test('WebOTP can receive the code before the SMS response and submits once the D
     assert.equal(payload.data.auto_fill, false);
     assert.equal(payload.data.check_remote_status, false);
     assert.equal(otp.value, '123456');
-    assert.equal(submitted, 1);
+    assert.equal(submitted, 0);
     assert.equal(signal.aborted, true);
 });
 
