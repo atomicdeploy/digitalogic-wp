@@ -130,14 +130,35 @@ final class MobileMergeEffects {
 	 * @param bool   $registration Whether this is an enrollment receipt.
 	 */
 	public static function drain( string $key, bool $registration = false ): void {
+		self::drainReceipt( $key, $registration ? 'registration' : 'merge' );
+	}
+
+	/**
+	 * Deliver committed saved-address events through the same canonical transports.
+	 *
+	 * @param string $key Durable owner-scoped operation key.
+	 */
+	public static function drainAddress( string $key ): void {
+		self::drainReceipt( $key, 'address' );
+	}
+
+	/**
+	 * Read one closed receipt type; every event retains its durable idempotency identity.
+	 *
+	 * @param string $key Operation key.
+	 * @param string $kind Private closed receipt type.
+	 */
+	private static function drainReceipt( string $key, string $kind ): void {
 		global $wpdb;
 		if ( self::active() || ! preg_match( '/\A[a-f0-9]{64}\z/D', $key ) ) {
 			return;
 		}
-		$lock      = ( $registration ? 'dgl-enroll-effects-' : 'dgl-merge-effects-' ) . substr( $key, 0, 40 );
-		$table     = $registration ? MobileRegistrationStore::table() : MobileAccountMerge::table();
-		$key_field = $registration ? 'token_hash' : 'operation_key';
-		$state     = $registration ? 'registered' : 'accepted';
+		$registration = 'registration' === $kind;
+		$address      = 'address' === $kind;
+		$lock         = ( $address ? 'dgl-address-effects-' : ( $registration ? 'dgl-enroll-effects-' : 'dgl-merge-effects-' ) ) . substr( $key, 0, 40 );
+		$table        = $address ? MobileAddressBookStore::table( 'address_operations' ) : ( $registration ? MobileRegistrationStore::table() : MobileAccountMerge::table() );
+		$key_field    = $registration ? 'token_hash' : 'operation_key';
+		$state        = $registration ? 'registered' : 'accepted';
 		if ( 1 !== (int) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s,0)', $lock ) ) ) {
 			return;
 		}
@@ -196,6 +217,14 @@ final class MobileMergeEffects {
 	 */
 	public static function schedulePending(): void {
 		global $wpdb;
+		if ( '1' === get_option( 'digitalogic_customer_address_schema' ) ) {
+			$addresses = $wpdb->get_col( $wpdb->prepare( "SELECT operation_key FROM %i WHERE state='accepted' AND effects_ciphertext IS NOT NULL AND effects_cursor<effects_count ORDER BY updated_at LIMIT 10", MobileAddressBookStore::table( 'address_operations' ) ) );
+			foreach ( (array) $addresses as $key ) {
+				if ( ! wp_next_scheduled( 'digitalogic_customer_address_effects', array( $key ) ) ) {
+					wp_schedule_single_event( time() + 10, 'digitalogic_customer_address_effects', array( $key ) );
+				}
+			}
+		}
 		if ( '1' === get_option( 'digitalogic_mobile_google_continuation_schema' ) ) {
 			$registrations = $wpdb->get_col( $wpdb->prepare( "SELECT token_hash FROM %i WHERE state='registered' AND effects_ciphertext IS NOT NULL AND effects_cursor<effects_count ORDER BY expires_at LIMIT 10", MobileRegistrationStore::table() ) );
 			foreach ( (array) $registrations as $key ) {

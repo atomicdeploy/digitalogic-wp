@@ -1,5 +1,5 @@
 {
-  "observed_at_utc": "2026-11-14T10:56:08.887517+00:00",
+  "observed_at_utc": "2026-11-14T11:18:07.046724+00:00",
   "source_branch": "feat/mobile-storefront-api",
   "deployment": "targeted files; no full-plugin replacement",
   "schemas": {
@@ -14,7 +14,8 @@
     "google_reauth_nonce": true,
     "native_phone_verification": true,
     "native_messages": false,
-    "account_merge": true
+    "account_merge": true,
+    "native_saved_addresses": false
   },
   "public_unauthenticated_checks": {
     "GET /app-api/account/phone/eligibility": 401,
@@ -112,7 +113,7 @@
     },
     "laravel/app/Services/MobileMergeEffects.php": {
       "deployed_sha256": "f168499de0171e8476483b7043ff2b5e18d5ac6c926db6fc7908dd9deb9f6f47",
-      "matches_working_source": true
+      "matches_working_source": false
     },
     "laravel/app/Services/MobileMergeObjectCache.php": {
       "deployed_sha256": "bc14c5bb33a781b5338dc27543940c045f7b71db822025323cef6bcf61942c7e",
@@ -183,7 +184,7 @@
       "esp_search_price_or_date_leaks": 0
     },
     "saved_price_provenance_hashes_unchanged": true,
-    "real_customer_order_verified": false,
+    "real_customer_order_verified": true,
     "isolated_checkout_acceptance": {
       "status": "passed",
       "assertions": 34,
@@ -284,10 +285,70 @@
     "native_profile_and_cart_adoption_http_status": 200
   },
   "handset_checkout_acceptance": {
-    "latest_attempt": "durably_rejected_before_order",
-    "reason": "provider initialized before native principal; supported early-auth fix now deployed",
-    "order_created": false,
-    "billing_geographic_baseline_unchanged": true,
-    "fresh_native_quote_and_submit": "pending user-authorized handset action"
+    "order_id": 14874,
+    "origin_submit_tehran": "2026-11-14T14:35:55+03:30",
+    "origin_http_status": 201,
+    "operation_status": "accepted",
+    "exact_owner_verified": true,
+    "order_status": "on-hold",
+    "paid": false,
+    "payment_method": "bacs",
+    "currency": "IRT",
+    "total": "1114000",
+    "lines": [
+      {
+        "sku": "113001020",
+        "quantity": 2
+      },
+      {
+        "sku": "113007123",
+        "quantity": 1
+      }
+    ],
+    "shipping_method": "local_pickup:1",
+    "shipping_total": "0",
+    "test_note_marker": "DGL-S20-20261114 / TEST - DO NOT DISPATCH",
+    "persistent_cart_line_count": 0,
+    "canonical_stock_reduced": true,
+    "billing_cleanup": {
+      "original_blank_fields": [
+        "country",
+        "state",
+        "city",
+        "address_1",
+        "address_2",
+        "postcode"
+      ],
+      "exact_comparisons_passed": true,
+      "conflicts": 0,
+      "restored_and_independently_reread": true,
+      "other_customer_fields_unchanged": true,
+      "order_snapshot_unchanged": true,
+      "shipping_untouched_without_baseline": true
+    },
+    "notification_observation": {
+      "new_order_email_sent_flag": true,
+      "invoice_number_date_html_present": true,
+      "voice_job_count": 0,
+      "matching_mail_debug_error_mentions": 0,
+      "human_delivery_not_claimed": true
+    },
+    "payment_dispatch_cancellation_performed_by_backend_lane": false
+  },
+  "saved_addresses": {
+    "status": "source_work_in_progress_not_deployed",
+    "schema_installed": false,
+    "legacy_migration_run": false,
+    "api_routes_wired": false,
+    "contract": "docs/mobile-saved-addresses.md",
+    "source_only_files": [
+      "MobileSavedAddress",
+      "MobileAddressBookStore",
+      "MobileAddressSelection",
+      "MobileAddressMutation",
+      "MobileMergeEffects address outbox extension"
+    ],
+    "focused_and_related_tests": 23,
+    "assertions": 205
   }
 }
