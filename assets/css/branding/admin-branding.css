@@ -1808,13 +1808,18 @@ body.login .dg-digits-login-shell .dg-passkey-options .digitalogic-call-toggle {
     gap: 9px;
     text-align: center;
 }
+body.login .digits-social-logins-box .dg-passkey-options {
+    box-sizing: border-box;
+    inline-size: 100%;
+    align-self: stretch;
+    margin: 0;
+}
 body.login .dg-digits-login-shell .dg-passkey-options[open] > .digits-form_passwordless_login {
     border: 1px solid var(--dg-border) !important;
     background: var(--dg-panel-soft) !important;
     color: var(--dg-text) !important;
     box-shadow: none !important;
     position: relative;
-    padding-inline: 42px !important;
 }
 body.login .dg-digits-login-shell .dg-passkey-options > .digits-form_passwordless_login > .dg-auth-icon {
     position: absolute;
@@ -1917,6 +1922,9 @@ body.login .dg-digits-login-shell .dg-passkey-options .digitalogic-call-toggle {
     background: var(--dg-panel-soft);
     white-space: normal;
 }
+body.login .dg-digits-login-shell .dg-passkey-options[open] > .digits-form_passwordless_login {
+    padding-inline: 42px !important;
+}
 body.login .dg-digits-login-shell form:not(.digits_form_index_section) .dg-passkey-options[open] > .digits-form_passwordless_login,
 body.login .dg-digits-login-shell form.dg-username-step-active .dg-passkey-options[open] > .digits-form_passwordless_login {
     display: none !important;
@@ -1954,11 +1962,14 @@ body.login:has(.dg-digits-login-shell) #nav {
 body.login #login .dg-auth-home {
     display: flex;
     align-items: center;
+    gap: 8px;
     min-block-size: 44px;
     inline-size: fit-content;
     margin: 0 auto 8px;
     padding-inline: 14px;
+    border: 1px solid var(--dg-border);
     border-radius: 12px;
+    background: var(--dg-panel-strong);
     color: var(--dg-text);
     text-decoration: none;
     font-weight: 600;

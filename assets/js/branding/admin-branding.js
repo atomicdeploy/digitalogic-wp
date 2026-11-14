@@ -3648,6 +3648,7 @@
             if (home) {
                 home.textContent = isPersianLocale() ? 'صفحه اصلی' : 'Home';
                 home.classList.add('dg-auth-home');
+                putAuthIcon(home, 'home');
                 authShell.before(home);
             }
         }
@@ -3669,6 +3670,7 @@
 
     var authIcons = {
         user: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z',
+        home: 'M3 11l9-8 9 8 M5 10v10h14V10 M10 20v-6h4v6',
         email: 'M4 5h16v14H4z M4 6l8 6 8-6',
         phone: 'M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z M10 17h4',
         lock: 'M7 10V7a5 5 0 0 1 10 0v3 M5 10h14v11H5z M12 14v3',
