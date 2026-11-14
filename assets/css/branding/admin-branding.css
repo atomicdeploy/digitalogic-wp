@@ -1054,6 +1054,17 @@ body.login .dg-username-password-input {
 body.login .dg-username-password-row .button.wp-hide-pw {
     order: 2;
     flex: 0 0 42px;
+    display: grid;
+    place-items: center;
+    align-self: center;
+    margin: 0 !important;
+    color: var(--dg-accent-strong) !important;
+}
+
+body.login .dg-username-password-row .button.wp-hide-pw > .dg-auth-icon {
+    display: block;
+    margin: 0;
+    color: inherit;
 }
 
 body.login .dg-username-login-actions {
@@ -1134,10 +1145,23 @@ body.login .dg-passwordless-label {
 }
 
 body.login .dg-digits-login-shell .dg-passwordless-caption {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     margin: 0;
     color: var(--dg-text-soft);
-    font: 500 13px/1.65 var(--dg-font, system-ui, sans-serif);
-    text-align: center;
+    font: 500 12px/1.45 var(--dg-font, system-ui, sans-serif);
+}
+body.login .dg-passwordless-caption > .dg-auth-icon {
+    inline-size: 13px;
+    block-size: 13px;
+    flex-basis: 13px;
+}
+
+body.login .dg-passwordless-copy {
+    display: grid;
+    gap: 2px;
+    text-align: start;
 }
 
 body.login .dg-digits-login-shell .dg-skip-password:hover {
@@ -2182,6 +2206,11 @@ body.login .dg-recovery-dialog {
 }
 body.login .dg-recovery-dialog::backdrop {
     background: rgba(7, 24, 44, .6);
+}
+@media (prefers-reduced-motion: no-preference) {
+    body.login .dg-recovery-dialog[open] {
+        animation: dg-reveal-fade var(--dg-reveal-short) var(--dg-reveal-easing);
+    }
 }
 body.login .dg-recovery-dialog form {
     display: grid;
