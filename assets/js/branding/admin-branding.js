@@ -2795,7 +2795,9 @@
                 restoreCaret(input);
             }
 
-            var identity = phone.type === 'phone' || keepSelectedCountryPhone ? 'phone' : classifyIdentity(value);
+            var smsIdentity = phoneInput.form?.dataset.dgSmsIdentity === 'true';
+            var identity = phone.type === 'phone' || keepSelectedCountryPhone || (smsIdentity && !value)
+                ? 'phone' : classifyIdentity(value);
 
             if (keepSelectedCountryPhone) {
                 phone.countryCode = selectedCountry;
@@ -2873,7 +2875,10 @@
 
         var page = new window.URL(window.location.href);
         authRecovery = page.searchParams.get('recover') === '1';
-        var persian = isPersianLocale();
+        var lang = document.documentElement.lang;
+        var persian = lang ? /^fa(?:[-_]|$)/i.test(lang) : isPersianLocale();
+        var pageHeading = document.querySelector('body.login > h1.screen-reader-text');
+        var signInTitle = pageHeading && pageHeading.textContent;
         function addAction(form, label, callback) {
             var actions = form.querySelector('.dg-auth-card-actions');
             if (!actions) {
@@ -2892,6 +2897,17 @@
         function beginRecovery() {
             authRecovery = true;
             setBrandedAuthForm(shell, false);
+            var title = getLabel('lostPassword', persian ? 'بازیابی رمز عبور' : 'Reset password');
+            var recoveryHeading = document.createElement('span');
+            recoveryHeading.className = 'dg-recovery-heading';
+            recoveryHeading.textContent = title;
+            login.querySelector('.digits-form_heading')?.appendChild(recoveryHeading);
+            if (pageHeading) { pageHeading.textContent = title; }
+            addAction(login, persian ? 'بازگشت به ورود' : 'Back to sign in', function () {
+                var back = login.querySelector('.digits_form_back:not(.digits_hide_back)');
+                if (back) { back.click(); }
+                returnToSignIn();
+            });
             showDigitsSmsIdentity(login);
             shell.dataset.dgRecovery = 'true';
             var url = new window.URL(window.location.href);
@@ -2899,24 +2915,23 @@
             url.searchParams.set('recover', '1');
             window.history.replaceState(null, '', url);
         }
-        function goToForm(signup) {
-            var form = setBrandedAuthForm(shell, signup);
-            if (!form) { return; }
+        function returnToSignIn() {
+            setBrandedAuthForm(shell, false);
             authRecovery = false;
             delete shell.dataset.dgRecovery;
             delete login.dataset.dgSmsIdentity;
+            login.querySelector('.dg-recovery-heading')?.remove();
+            login.querySelector('.dg-auth-card-actions')?.remove();
+            if (pageHeading) { pageHeading.textContent = signInTitle; }
             var help = login.querySelector('.dg-sms-identity-help');
             if (help) { help.hidden = true; }
             var primary = login.querySelector('.digits-form_login > .digits-form_submit-btn .digits-form_button-text');
             if (primary) { primary.textContent = getLabel('continue', 'Continue'); }
-            if (!signup) { selectDigitsMode(classifyIdentity(digitsIdentityValue(login)), false); }
+            selectDigitsMode(classifyIdentity(digitsIdentityValue(login)), true);
             var url = new window.URL(window.location.href);
             url.searchParams.delete('recover');
             url.searchParams.delete('action');
-            if (signup) { url.searchParams.set('action', 'register'); }
             window.history.replaceState(null, '', url);
-            var input = form.querySelector(signup ? '[name="phone"]' : '.digits-tab_active input:is([name="digits_phone"],[name="digits_email"])');
-            if (input) { input.focus({ preventScroll: true }); }
         }
         var help = document.createElement('p');
         help.className = 'dg-sms-identity-help';
@@ -2924,14 +2939,8 @@
         help.textContent = persian ? 'برای دریافت کد تأیید، شماره موبایل خود را وارد کنید.'
             : 'Enter your mobile number to receive a verification code.';
         login.querySelector('.digits-form_heading')?.after(help);
-        addAction(login, persian ? 'بازگشت به ورود' : 'Back to sign in', function () {
-            var back = login.querySelector('.digits_form_back:not(.digits_hide_back)');
-            if (back) { back.click(); }
-            goToForm(false);
-        });
-        login.querySelector('.dg-auth-card-actions button:last-child')?.classList.add('dg-recovery-back');
         if (register) {
-            addAction(register, persian ? 'بازگشت به ورود' : 'Back to sign in', function () { goToForm(false); });
+            addAction(register, persian ? 'بازگشت به ورود' : 'Back to sign in', returnToSignIn);
             setBrandedAuthForm(shell, false);
         }
         if (authRecovery) { beginRecovery(); }
@@ -3966,8 +3975,8 @@
         window.addEventListener('pagehide', function () { if (authSocket) { authSocket.close(); } });
         (window.requestIdleCallback || window.setTimeout)(prefetchAuthPages);
         bindLoginValidation();
-        bindBrandedAuthNavigation();
         bindDigitsAutoIdentity();
+        bindBrandedAuthNavigation();
         observeAuthChrome();
         enforceDigitsRegisterMobile();
         scheduleDigitsAjaxFailureGuard();
