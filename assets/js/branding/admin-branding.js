@@ -1452,9 +1452,12 @@
             && form.dataset.dgUsernameStep !== 'password';
     }
 
+    function callVerificationEnabled(shell) {
+        return !!shell.querySelector('[data-call-unified][data-call-available="true"]');
+    }
+
     function canChoosePhoneChannel(number, shell) {
-        return number.valid && ['MOBILE', 'FIXED_LINE_OR_MOBILE'].includes(number.kind)
-            && !!shell.querySelector('[data-call-unified][data-call-available="true"]');
+        return number.valid && ['MOBILE', 'FIXED_LINE_OR_MOBILE'].includes(number.kind) && callVerificationEnabled(shell);
     }
 
     function digitsIdentityAction(form) {
@@ -1473,7 +1476,7 @@
             if (number.valid && (!number.kind || ['MOBILE', 'FIXED_LINE_OR_MOBILE', 'FIXED_LINE'].includes(number.kind))) {
                 var byCall = number.kind === 'FIXED_LINE'
                     || (form.dataset.dgPhoneChannel === 'call' && canChoosePhoneChannel(number, shell));
-                return { type: byCall ? 'call' : 'sms', enabled: true, number: number };
+                return { type: byCall ? 'call' : 'sms', enabled: !byCall || callVerificationEnabled(shell), number: number };
             }
         }
         return { type: 'continue', enabled: false };
@@ -2611,8 +2614,9 @@
             return;
         }
         if (identityAction?.type === 'call') {
+            form.querySelector('.dg-digits-inline-message')?.remove();
             if (!window.DigitalogicCallLogin?.start(identityAction.number.e164)) {
-                showDigitsInlineMessage(form, getLabel('callUnavailable', 'Call verification is temporarily unavailable.'), 'warning');
+                showDigitsInlineMessage(form, getLabel('callLoadFailed', 'The call verification controls did not load. Reload this page and try again.'), 'warning');
             }
             return;
         }
@@ -3159,6 +3163,11 @@
         emailInput.inputMode = 'email';
         var updateEmailFeedback = bindEmailDomainFeedback(emailInput);
         var login = phoneInput.form;
+        if (login) {
+            shell.addEventListener('digitalogic:call-error', function (event) {
+                showDigitsInlineMessage(login, event.detail, 'warning');
+            });
+        }
         var channels = document.createElement('fieldset');
         channels.className = 'dg-phone-channels';
         channels.hidden = true;
@@ -4244,9 +4253,6 @@
         var widget = document.querySelector('[data-call-unified]');
         if (widget && !shell.contains(widget)) {
             shell.appendChild(widget);
-            widget.addEventListener('digitalogic:call-error', function (event) {
-                showDigitsInlineMessage(form.closest('form'), event.detail, 'warning');
-            });
         }
         var passkey = form.querySelector('.digits-form_passwordless_login');
         var login = form.closest('form') || form;

@@ -208,6 +208,11 @@ async function checkEmailGate(page, labels) {
     assert.equal(await primary.innerText(), labels.sendSmsCode);
     await phone.fill('+982112345678');
     assert.equal(await primary.innerText(), labels.getCallCode);
+    await page.locator('[data-call-unified]').evaluate(widget => { widget.dataset.callAvailable = 'false'; });
+    await phone.fill('');
+    await phone.fill('+982112345678');
+    assert.equal(await primary.isDisabled(), true, 'A fixed line cannot submit when the call panel is unavailable');
+    await page.locator('[data-call-unified]').evaluate(widget => { widget.dataset.callAvailable = 'true'; });
     await phone.fill('preview@');
     assert.equal(await primary.isDisabled(), true);
     await email.blur();
