@@ -46,8 +46,8 @@ async function checkIconAndLabel(button, direction) {
     assert.equal(layout.iconOnRight, direction === 'rtl');
 }
 
-async function render(page, direction, labels, native) {
-    await page.route('https://digitalogic.test/login/', route => route.fulfill({
+async function render(page, direction, labels, native, search = '') {
+    await page.route('https://digitalogic.test/login/**', route => route.fulfill({
         contentType: 'text/html; charset=utf-8',
         body: `<!doctype html><html lang="${direction === 'rtl' ? 'fa' : 'en'}" dir="${direction}">
             <body class="login"><div id="login"><div class="dg-digits-login-shell">
@@ -68,10 +68,14 @@ async function render(page, direction, labels, native) {
                 </div>
                 <button class="digits-form_submit-btn" type="submit"><span class="digits-form_button-text">Continue</span></button>
                 <button class="digits-form_passwordless_login" type="button">Passkey</button>
+                <div class="digits-social-logins-box">
+                  <div class="digits-use_social-logins"><span>Or continue with</span></div>
+                  <div class="digits-social-logins"><div id="digits_google_login"><span class="digits-social-text">Google</span></div></div>
+                </div>
               </div>
             </form></div></div></body></html>`
     }));
-    await page.goto('https://digitalogic.test/login/');
+    await page.goto('https://digitalogic.test/login/' + search);
     await page.evaluate(labels => {
         window.DigitalogicBranding = {
             labels,
@@ -88,6 +92,12 @@ async function render(page, direction, labels, native) {
     await page.addStyleTag({ path: styles });
     await page.addScriptTag({ path: branding });
     await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
+}
+
+async function checkAlternatives(page, visible) {
+    for (const selector of ['.digits-use_social-logins', '#digits_google_login', '.dg-passkey-options summary']) {
+        assert.equal(await page.locator(selector).isVisible(), visible, selector);
+    }
 }
 
 async function checkOtpEditor(page, channel) {
@@ -118,16 +128,19 @@ async function checkOtpEditor(page, channel) {
             for (const native of [true, false]) {
                 const page = await browser.newPage({ viewport: { width, height: 800 } });
                 await render(page, direction, labels, native);
+                await checkAlternatives(page, !native);
                 if (!native) {
                     await page.locator('.dg-passkey-options summary').click();
                     await checkIconAndLabel(page.getByRole('button', { name: labels.passkeyLogin, exact: true }), direction);
                     await page.locator('input[name="digits_phone"]').fill('fixture-user');
                     await page.getByRole('button', { name: 'Continue', exact: true }).click();
+                    await checkAlternatives(page, false);
                     const profile = page.locator('.dg-username-login-summary');
                     const avatar = profile.locator('.dg-username-login-avatar');
                     assert.equal(await avatar.locator('img').count(), 0);
                     assert.equal(await avatar.locator('svg').isVisible(), true);
                     await page.locator('.dg-username-login-back').click();
+                    await checkAlternatives(page, true);
                     await page.locator('input[name="digits_phone"]').fill('known-user');
                     await page.getByRole('button', { name: 'Continue', exact: true }).click();
                     await avatar.locator('img').waitFor();
@@ -165,6 +178,7 @@ async function checkOtpEditor(page, channel) {
                 }
                 const button = await checkAction(page, labels, direction);
                 await button.click();
+                await checkAlternatives(page, false);
                 if (native) {
                     assert.equal(await page.locator('body').getAttribute('data-sms-tab-selected'), 'true');
                     assert.equal(await page.locator('input[type="password"]').inputValue(), '');
@@ -172,12 +186,28 @@ async function checkOtpEditor(page, channel) {
                     assert.equal(await page.locator('form').getAttribute('data-dg-sms-identity'), 'true');
                     assert.equal(await page.locator('input[name="digits_phone"]').evaluate(element => document.activeElement === element), true);
                     assert.equal(await page.getByRole('button', { name: 'Send SMS code', exact: true }).isVisible(), true);
+                    await page.locator('.dg-auth-back').click();
+                    await checkAlternatives(page, true);
+                    assert.equal(await page.locator('.dg-auth-back').isVisible(), false);
+                    assert.equal(await page.locator('.digits-form_tab_container').count(), 1, 'Digits must have only the identity tab after returning');
+                    await page.locator('input[name="digits_phone"]').fill('known-user');
+                    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+                    await page.locator('.dg-skip-password:visible').click();
                 }
                 await checkOtpEditor(page, native ? 'sms' : 'email');
+                await checkAlternatives(page, false);
                 await page.close();
             }
+            const recovery = await browser.newPage({ viewport: { width, height: 800 } });
+            await render(recovery, direction, labels, false, '?recover=1');
+            await checkAlternatives(recovery, false);
+            await recovery.locator('.dg-auth-back').click();
+            await checkAlternatives(recovery, true);
+            assert.equal(await recovery.locator('.dg-auth-back').isVisible(), false);
+            assert.equal(new URL(recovery.url()).searchParams.has('recover'), false);
+            await recovery.close();
         }
-        console.log('Passwordless caption, icon spacing, and SMS entry passed in RTL and LTR.');
+        console.log('Passwordless actions, OTP, and first-step-only sign-in options passed in RTL and LTR.');
     } finally {
         await browser.close();
     }

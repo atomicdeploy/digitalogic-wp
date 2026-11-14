@@ -1517,13 +1517,8 @@
             }));
 
             step.querySelector('.dg-username-login-back').addEventListener('click', function () {
-                var password = step.querySelector('.dg-username-password-input');
-                password.value = '';
-                password.disabled = true;
-                password.type = 'password';
-                syncPasswordToggle(step.querySelector('.dg-username-password-toggle'), password);
-                step.hidden = true;
-                step.style.display = 'none';
+                // Digits counts every tab container when handling Back, including hidden ones.
+                step.remove();
                 delete form.dataset.dgUsernameStep;
                 form.classList.remove('dg-username-step-active');
                 showDigitsIdentityContainer(form);
@@ -2034,35 +2029,8 @@
             form.hidden = !active;
             form.style.display = active ? '' : 'none';
         });
-        var active = signup ? register : login;
-        var google = shell.querySelector('#digits_google_login');
-        var social = google && google.closest('.digits-social-logins-box');
-        var submit = active.querySelector('.digits-form_submit-btn');
-        if (signup && social && submit) {
-            var providers = social.querySelector('.digits-social-logins');
-            var divider = social.querySelector('.digits-use_social-logins');
-            [divider, providers].filter(Boolean).forEach(function (node) {
-                node.dataset.dgSharedProvider = 'true';
-            });
-            var signupSocial = register.querySelector('.dg-signup-providers');
-            if (!signupSocial) {
-                signupSocial = document.createElement('div');
-                signupSocial.className = 'digits-social-logins-box dg-signup-providers';
-                submit.after(signupSocial);
-            }
-            [divider, providers].filter(Boolean).forEach(function (node) { signupSocial.appendChild(node); });
-        } else if (social && !login.contains(social)) {
-            var loginSocial = login.querySelector('.digits-social-logins-box');
-            if (loginSocial) {
-                var disclosure = loginSocial.querySelector('.dg-passkey-options');
-                social.querySelectorAll('[data-dg-shared-provider]').forEach(function (node) {
-                    loginSocial.insertBefore(node, disclosure);
-                });
-                social.remove();
-            }
-        }
         shell.dataset.dgAuthMode = signup ? 'signup' : 'login';
-        return active;
+        return signup ? register : login;
     }
 
     function continueToDigitsSignup(form, data) {
@@ -3182,11 +3150,6 @@
             recoveryHeading.textContent = title;
             login.querySelector('.digits-form_heading')?.appendChild(recoveryHeading);
             if (pageHeading) { pageHeading.textContent = title; }
-            addAction(login, persian ? 'بازگشت به ورود' : 'Back to sign in', function () {
-                var back = login.querySelector('.digits_form_back:not(.digits_hide_back)');
-                if (back) { back.click(); }
-                returnToSignIn();
-            });
             showDigitsSmsIdentity(login);
             shell.dataset.dgRecovery = 'true';
             var url = new window.URL(window.location.href);
@@ -3200,7 +3163,6 @@
             delete shell.dataset.dgRecovery;
             delete login.dataset.dgSmsIdentity;
             login.querySelector('.dg-recovery-heading')?.remove();
-            login.querySelector('.dg-auth-card-actions')?.remove();
             if (pageHeading) { pageHeading.textContent = signInTitle; }
             var help = login.querySelector('.dg-sms-identity-help');
             if (help) { help.hidden = true; }
@@ -3218,8 +3180,14 @@
         help.textContent = persian ? 'ایمیل یا شماره تلفن خود را برای دریافت کد تأیید وارد کنید.'
             : 'Enter your email address or phone number to receive a verification code.';
         login.querySelector('.digits-form_heading')?.after(help);
+        var backLabel = persian ? 'بازگشت به ورود' : 'Back to sign in';
+        addAction(login, backLabel, function () {
+            var back = login.querySelector('.digits_form_back:not(.digits_hide_back)');
+            if (back) { back.click(); }
+            returnToSignIn();
+        });
         if (register) {
-            addAction(register, persian ? 'بازگشت به ورود' : 'Back to sign in', returnToSignIn);
+            addAction(register, backLabel, returnToSignIn);
             setBrandedAuthForm(shell, false);
         }
         if (authRecovery) { beginRecovery(); }
@@ -3987,13 +3955,6 @@
     }
 
     function decorateAuthControls() {
-        var signup = document.querySelector('.dg-digits-register-shell form.digits_register');
-        var google = document.querySelector('#digits_google_login');
-        var social = google && google.closest('.digits-social-logins-box');
-        if (signup && social && !signup.contains(social)) {
-            var signupFooter = signup.querySelector('.dig_login_signup_bar');
-            if (signupFooter) { signupFooter.before(social); }
-        }
         var selectors = {
             '.digits-form_heading:not([data-call-code-title])': 'user',
             '.dg-passkey-options summary': 'more',
