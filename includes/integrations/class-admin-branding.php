@@ -561,6 +561,7 @@ JS;
 
         $config['labels'] = self::client_labels();
 		if ( $is_login ) {
+			$config['otpCursor']          = 'circle' === apply_filters( 'digitalogic_otp_cursor', 'bar' ) ? 'circle' : 'bar';
 			$config['emailDomainNonce']   = wp_create_nonce( 'digitalogic_email_domain' );
 			$config['loginSlidesUrl']     = rest_url( 'digitalogic/v1/login-slides' );
 			$config['authWebSocket']      = class_exists( 'Digitalogic_WebSocket' ) ? Digitalogic_WebSocket::instance()->get_public_client_config() : array();

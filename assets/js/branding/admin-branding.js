@@ -1897,6 +1897,10 @@
         var editor = document.createElement('div');
         editor.className = 'dg-otp-editor';
         editor.dir = 'ltr';
+        var form = input.form;
+        if (form && !form.hasAttribute('data-dg-otp-cursor')) {
+            form.dataset.dgOtpCursor = config.otpCursor === 'bar' ? 'bar' : 'circle';
+        }
         editor.style.setProperty('--dg-otp-count', String(count));
         editor.setAttribute('role', 'group');
         editor.setAttribute('aria-label', getLabel('otpCode', 'Verification code'));
@@ -1917,6 +1921,42 @@
             heading.appendChild(title);
         }
         var cells = [];
+        var digitRolls = new WeakMap();
+        var staticDigits = window.matchMedia('(prefers-reduced-motion: reduce), (forced-colors: active)');
+
+        function setDigit(cell, digit, animate) {
+            var previous = cell.value;
+            cell.value = digit;
+            if (digit === previous) { return; }
+            digitRolls.get(cell)?.();
+            if (!digit || !animate || form?.dataset.dgOtpCursor !== 'bar' || staticDigits.matches || !cell.animate) { return; }
+
+            var roll = document.createElement('span');
+            roll.className = 'dg-otp-roll';
+            roll.setAttribute('aria-hidden', 'true');
+            cell.after(roll);
+            function animateGlyph(text, from, to) {
+                var glyph = document.createElement('span');
+                glyph.textContent = text;
+                roll.appendChild(glyph);
+                return glyph.animate([from, to], { duration: 180, easing: 'cubic-bezier(.2,.72,.25,1)', fill: 'both' });
+            }
+            var outgoing = previous ? animateGlyph(previous,
+                { opacity: 1, transform: 'translateY(0)' },
+                { opacity: 0, transform: 'translateY(-.5em)' }) : null;
+            var incoming = animateGlyph(digit,
+                { opacity: 0, transform: 'translateY(.55em)' },
+                { opacity: 1, transform: 'translateY(0)' });
+            function finish() {
+                if (digitRolls.get(cell) !== finish) { return; }
+                digitRolls.delete(cell);
+                roll.remove();
+                outgoing?.cancel();
+                incoming.cancel();
+            }
+            digitRolls.set(cell, finish);
+            incoming.finished.then(finish, finish);
+        }
 
         function syncCode() {
             input.value = cells.every(function (cell) { return cell.value !== ''; })
@@ -1934,7 +1974,7 @@
             var digits = otpDigits(value);
             var start = digits.length >= count ? 0 : index;
             digits.slice(0, count - start).split('').forEach(function (digit, offset) {
-                cells[start + offset].value = digit;
+                setDigit(cells[start + offset], digit, moveFocus);
             });
             syncCode();
             if (moveFocus && digits.length) {
@@ -1960,7 +2000,7 @@
             cell.addEventListener('focus', function () { cell.select(); });
             cell.addEventListener('click', function () { cell.select(); });
             cell.addEventListener('select', function () {
-                if (document.activeElement === cell && cell.value && cell.selectionStart === cell.selectionEnd) {
+                if (document.activeElement === cell && cell.value && (cell.selectionStart !== 0 || cell.selectionEnd !== cell.value.length)) {
                     cell.select();
                 }
             });
@@ -1974,7 +2014,7 @@
             cell.addEventListener('input', function () {
                 stopDigitsSmsWait(input.form);
                 var value = cell.value;
-                cell.value = '';
+                setDigit(cell, '', false);
                 fillDigits(value, index, true);
             });
             cell.addEventListener('paste', function (event) {
@@ -1995,10 +2035,10 @@
                     event.preventDefault();
                     stopDigitsSmsWait(input.form);
                     if (key === 'Backspace' && !cell.value && index > 0) {
-                        cells[index - 1].value = '';
+                        setDigit(cells[index - 1], '', false);
                         focusDigit(index - 1);
                     } else {
-                        cell.value = '';
+                        setDigit(cell, '', false);
                     }
                     syncCode();
                 } else if (key === 'Enter') {
@@ -2014,7 +2054,7 @@
         var hadFocus = document.activeElement === input;
         digitsOtpEditors.set(input, {
             fill: function (code) {
-                cells.forEach(function (cell) { cell.value = ''; });
+                cells.forEach(function (cell) { setDigit(cell, '', false); });
                 fillDigits(code, 0, false);
             },
             focus: function () {
