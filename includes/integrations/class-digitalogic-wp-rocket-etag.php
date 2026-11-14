@@ -16,7 +16,7 @@ final class Digitalogic_WP_Rocket_ETag {
 
 	private const STOCK_ETAG_DIRECTIVE           = 'Header unset ETag';
 	private const MOD_DEFLATE_OPEN               = '<IfModule mod_deflate.c>';
-	private const PRICING_SYNC_REQUEST_PATTERN   = 'm#\\\\s/+wp-json/digitalogic/pricing/sync/(?:revision|snapshots|builds)(?:[/?\\\\s])#';
+	private const PRICING_SYNC_REQUEST_PATTERN   = 'm#\\\\s/+(?:wp-json/digitalogic/pricing/sync/(?:revision|snapshots|builds)|app-api/(?:bootstrap|categories|products(?:/[0-9]+)?))(?:[/?\\\\s])#';
 	private const PRICING_SYNC_ETAG_DIRECTIVE    = 'Header unset ETag "expr=%{THE_REQUEST} !~ ' . self::PRICING_SYNC_REQUEST_PATTERN . '"';
 	private const PRICING_SYNC_NO_GZIP_DIRECTIVE = '<IfModule mod_setenvif.c>' . PHP_EOL
 		. 'SetEnvIfNoCase Request_URI "^/wp-json/digitalogic/pricing/sync/(?:revision|snapshots|builds)(?:[/?]|$)" no-gzip dont-vary' . PHP_EOL

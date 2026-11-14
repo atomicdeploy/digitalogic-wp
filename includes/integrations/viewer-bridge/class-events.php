@@ -83,6 +83,9 @@ final class Events {
 		array $changes = array(),
 		array $value = array()
 	) {
+		if ( class_exists( '\Digitalogic\Laravel\Services\MobileMergeEffects', false ) && \Digitalogic\Laravel\Services\MobileMergeEffects::defer( 'viewer', array( $type, $entity_type, $entity_id, $revision, $changes, $value ) ) ) {
+			return null;
+		}
 		$key        = implode( '|', array( $type, $entity_type, $entity_id, $revision ) );
 		$entity_key = $entity_type . '|' . $entity_id;
 		if ( ( self::$emitted[ $entity_key ] ?? null ) === $key ) {

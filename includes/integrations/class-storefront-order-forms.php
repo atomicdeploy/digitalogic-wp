@@ -32,6 +32,7 @@ final class Digitalogic_Storefront_Order_Forms {
 		add_action( 'before_delete_post', array( $this, 'delete_private_file' ), 10, 2 );
 		add_action( 'add_meta_boxes_' . self::POST_TYPE, array( $this, 'register_meta_boxes' ) );
 		add_action( 'save_post_' . self::POST_TYPE, array( $this, 'save_request_status' ) );
+		add_action( 'digitalogic_mobile_request_notify', array( $this, 'deliver_native_notification' ) );
 		add_filter( 'manage_' . self::POST_TYPE . '_posts_columns', array( $this, 'admin_columns' ) );
 		add_action( 'manage_' . self::POST_TYPE . '_posts_custom_column', array( $this, 'render_admin_column' ), 10, 2 );
 	}
@@ -446,6 +447,7 @@ final class Digitalogic_Storefront_Order_Forms {
 		update_post_meta( $request_id, '_dgl_request_source_url', esc_url_raw( $redirect ) );
 
 		$this->notify_admin( $request_id, $code, $type_label, $contact, $payload );
+		do_action( 'digitalogic_storefront_request_created', $request_id, $type, get_current_user_id() );
 		$this->redirect_with_success( $redirect, $code );
 	}
 
@@ -652,7 +654,7 @@ final class Digitalogic_Storefront_Order_Forms {
 	 *
 	 * @return string|WP_Error
 	 */
-	private function private_upload_directory() {
+	public function private_upload_directory() {
 		$preferred = defined( 'DIGITALOGIC_PRIVATE_UPLOAD_DIR' )
 			? DIGITALOGIC_PRIVATE_UPLOAD_DIR
 			: trailingslashit( dirname( untrailingslashit( ABSPATH ) ) ) . 'digitalogic-private-requests';
@@ -765,6 +767,107 @@ final class Digitalogic_Storefront_Order_Forms {
 			$headers[] = 'Reply-To: ' . $contact['name'] . ' <' . $contact['email'] . '>';
 		}
 		wp_mail( get_option( 'admin_email' ), $subject, $body, $headers );
+	}
+
+	/**
+	 * Reuse the website validator after native owner authentication without changing browser identity.
+	 *
+	 * @param string $type Canonical form type.
+	 * @param array $fields Native field payload.
+	 */
+	public function validate_native( string $type, array $fields ) {
+		if ( ! in_array( $type, array( 'pcb', 'foreign' ), true ) ) {
+			return new WP_Error( 'invalid_form', 'نوع فرم معتبر نیست.' ); }
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Save and restore the outer global; authenticated native callers invoke this validator.
+		$previous = $_POST;
+		try {
+			$_POST   = wp_slash( $fields );
+			$contact = $this->sanitize_contact();
+			if ( is_wp_error( $contact ) ) {
+				return $contact; }
+			$payload = 'pcb' === $type ? $this->sanitize_pcb_payload() : $this->sanitize_foreign_payload();
+			return is_wp_error( $payload ) ? $payload : array(
+				'contact' => $contact,
+				'payload' => $payload,
+			);
+		} finally {
+			$_POST = $previous; }
+	}
+
+	/**
+	 * Persist the existing private request after owner, upload and transaction validation.
+	 *
+	 * @param string $type Canonical form type.
+	 * @param array $data Validated contact and request data.
+	 * @param int $user_id Verified WordPress owner.
+	 * @param array $file Owned completed private upload.
+	 */
+	public function persist_native( string $type, array $data, int $user_id, array $file ) {
+		$code  = $this->generate_code( $type );
+		$label = 'pcb' === $type ? 'PCB' : 'سفارش خارجی';
+		$id    = wp_insert_post(
+			array(
+				'post_type'   => self::POST_TYPE,
+				'post_status' => 'private',
+				'post_author' => $user_id,
+				'post_title'  => sprintf( '%s %s — %s', $label, $code, $data['contact']['name'] ),
+			),
+			true
+		);
+		if ( is_wp_error( $id ) ) {
+			return $id; }
+		foreach ( array(
+			'type'       => $type,
+			'code'       => $code,
+			'status'     => 'new',
+			'contact'    => $data['contact'],
+			'payload'    => $data['payload'],
+			'file'       => $file,
+			'source_url' => home_url( '/app-api/requests' ),
+		) as $key => $value ) {
+			if ( ! update_post_meta( $id, '_dgl_request_' . $key, $value ) ) {
+				return new WP_Error( 'save_failed', 'ذخیره درخواست کامل نشد.' ); }
+		}
+		return array(
+			'id'         => $id,
+			'code'       => $code,
+			'type'       => $type,
+			'status'     => 'new',
+			'created_at' => gmdate( 'c' ),
+		);
+	}
+
+	/**
+	 * Enqueue the existing request notification after its durable transaction commits.
+	 *
+	 * @param array $request Canonical saved request.
+	 * @param array $data Validated payload retained for caller compatibility.
+	 */
+	public function notify_native( array $request, array $data ): void {
+		unset( $data ); // Delivery reloads canonical request data after commit.
+		if ( function_exists( 'as_enqueue_async_action' ) ) {
+			as_enqueue_async_action( 'digitalogic_mobile_request_notify', array( (int) $request['id'] ), 'digitalogic-mobile', true );
+		} else {
+			wp_schedule_single_event( time(), 'digitalogic_mobile_request_notify', array( (int) $request['id'] ) );
+		}
+	}
+
+	/**
+	 * Deliver once through existing admin mail and signed webhook workflows.
+	 *
+	 * @param int $id Canonical private request ID.
+	 */
+	public function deliver_native_notification( $id ): void {
+		$id   = absint( $id );
+		$post = get_post( $id );
+		if ( ! $post || self::POST_TYPE !== $post->post_type || ! add_option( '_dgl_mobile_request_notice_' . $id, 'claimed', '', false ) ) {
+			return;}
+		$type    = get_post_meta( $id, '_dgl_request_type', true );
+		$code    = get_post_meta( $id, '_dgl_request_code', true );
+		$contact = (array) get_post_meta( $id, '_dgl_request_contact', true );
+		$payload = (array) get_post_meta( $id, '_dgl_request_payload', true );
+		$this->notify_admin( $id, $code, 'pcb' === $type ? 'PCB' : 'سفارش خارجی', $contact, $payload );
+		do_action( 'digitalogic_storefront_request_created', $id, $type, (int) $post->post_author );
 	}
 
 	/**

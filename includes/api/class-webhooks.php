@@ -67,6 +67,7 @@ class Digitalogic_Webhooks {
         // Hook into order updates
         add_action('woocommerce_new_order', array($this, 'order_created'), 10, 2);
         add_action('woocommerce_order_status_changed', array($this, 'order_status_changed'), 10, 4);
+		add_action( 'digitalogic_storefront_request_created', array( $this, 'storefront_request_created' ), 10, 3 );
         
         // Hook into currency updates
         add_action('update_option_dollar_price', array($this, 'currency_updated'), 10, 3);
@@ -703,7 +704,10 @@ class Digitalogic_Webhooks {
     /**
      * Trigger webhook
      */
-    private function trigger_webhook($event, $data, $blocking = false, $effect_id = '') {
+    private function trigger_webhook($event, $data, $blocking = false, $effect_id = '', $occurred_at = 0) {
+        if (class_exists('Digitalogic\\Laravel\\Services\\MobileMergeEffects', false) && \Digitalogic\Laravel\Services\MobileMergeEffects::defer('webhook', array($event, $data))) {
+            return true;
+        }
         $webhook_urls = get_option('digitalogic_webhook_urls', array());
         
         if (empty($webhook_urls)) {
@@ -723,7 +727,7 @@ class Digitalogic_Webhooks {
         $payload = array(
             'event' => $event,
             'event_id' => $event_id,
-            'timestamp' => time(),
+            'timestamp' => $occurred_at > 0 ? $occurred_at : time(),
             'site' => array(
                 'name' => get_bloginfo('name'),
                 'url' => home_url(),
@@ -792,6 +796,11 @@ class Digitalogic_Webhooks {
 
         return true;
     }
+
+    /** Deliver an encrypted, committed merge-outbox entry with one stable consumer identity. */
+    public function deliver_merge_event($event, $data, $effect_id, $occurred_at) {
+        return $this->trigger_webhook($event, $data, true, $effect_id, $occurred_at);
+    }
     
     /**
      * Verify webhook signature
@@ -816,6 +825,31 @@ class Digitalogic_Webhooks {
     public function manual_trigger($event, $data) {
         $this->trigger_webhook($event, $data);
     }
+
+	/**
+	 * Publish the existing signed request-created invalidation without private contact or file data.
+	 *
+	 * @param int $id Canonical request post ID.
+	 * @param string $type Canonical request type.
+	 * @param int $user_id WordPress request owner.
+	 */
+	public function storefront_request_created( $id, $type, $user_id ) {
+		$id   = absint( $id );
+		$type = sanitize_key( $type );
+		if ( ! $id || ! in_array( $type, array( 'pcb', 'foreign' ), true ) ) {
+			return; }
+		$this->trigger_webhook(
+			'storefront.request.created',
+			array(
+				'request_id' => $id,
+				'type'       => $type,
+				'user_id'    => absint( $user_id ),
+				'status'     => 'new',
+			),
+			false,
+			hash( 'sha256', 'storefront.request.created|' . $id )
+		);
+	}
 
     /**
      * Format a WordPress user without secrets.
