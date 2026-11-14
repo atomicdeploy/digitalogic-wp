@@ -404,6 +404,38 @@ final class MobileCatalogController {
 	}
 
 	/**
+	 * Count the complete canonical public variation inventory, never a page slice.
+	 *
+	 * Unavailable models remain models. A failed inventory read stays unknown.
+	 *
+	 * @param mixed $product Canonical Woo product.
+	 * @return int|null Full public child count for a variable product, or unknown.
+	 */
+	public function variationCount( $product ): ?int {
+		if ( ! $product->is_type( 'variable' ) ) {
+			return null;
+		}
+		try {
+			$ids = $product->get_children();
+			if ( ! is_array( $ids ) ) {
+				return null;
+			}
+			$count = 0;
+			foreach ( array_unique( array_map( 'absint', $ids ) ) as $id ) {
+				$child = wc_get_product( $id );
+				if ( $child && $child->is_type( 'variation' )
+					&& (int) $child->get_parent_id() === (int) $product->get_id()
+					&& $this->isPublic( $child ) ) {
+					++$count;
+				}
+			}
+			return $count;
+		} catch ( \Throwable $error ) {
+			return null;
+		}
+	}
+
+	/**
 	 * Project canonical Woo product fields without private or inferred commerce information.
 	 *
 	 * @param mixed $product Product.
@@ -463,6 +495,7 @@ final class MobileCatalogController {
 				$categories
 			),
 			'variations'        => array(),
+			'variation_count'   => $this->variationCount( $product ),
 			'average_rating'    => $product->get_average_rating(),
 			'review_count'      => $product->get_review_count(),
 			'modified_at'       => $product->get_date_modified() ? $product->get_date_modified()->date( 'c' ) : null,

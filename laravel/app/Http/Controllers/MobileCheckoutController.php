@@ -17,6 +17,7 @@ use Digitalogic\Laravel\Services\MobileIdentityStore as Identity;
 use Digitalogic\Laravel\Services\MobileRequestStore;
 use Digitalogic\Laravel\Services\MobileWooCart;
 use Digitalogic\Laravel\Services\MobileAddresses;
+use Digitalogic\Laravel\Services\MobileOrderPayment;
 use Digitalogic\Laravel\Services\MobileWooCheckout as Woo;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -279,12 +280,7 @@ final class MobileCheckoutController {
 					$result = $gateway->process_payment( $order_id );
 					if ( ( $result['result'] ?? '' ) !== 'success' ) {
 						throw new \RuntimeException( 'payment_result_uncertain' );}
-					$payment = array(
-						'status'       => 'awaiting_bank_transfer',
-						'instructions' => wp_strip_all_tags( $gateway->get_option( 'instructions', '' ) ),
-					);
-					// BACS account details are the shop's published transfer instructions, never API credentials.
-					$payment['bank_accounts'] = array_map( static fn( $account )=>array_intersect_key( $account, array_flip( array( 'account_name', 'account_number', 'bank_name', 'sort_code', 'iban', 'bic' ) ) ), (array) get_option( 'woocommerce_bacs_accounts', array() ) );
+					$payment = MobileOrderPayment::forOrder( wc_get_order( $order_id ), $user, $gateway );
 				} else {
 					$order->payment_complete();
 					WC()->cart->empty_cart();}
@@ -444,7 +440,8 @@ final class MobileCheckoutController {
 			if ( ! empty( $row['order_id'] ) ) {
 				$order = wc_get_order( (int) $row['order_id'] );
 				if ( $order && (int) $order->get_customer_id() === (int) $row['user_id'] ) {
-					$body['order'] = $this->order( $order );
+					$body['order']   = $this->order( $order );
+					$body['payment'] = MobileOrderPayment::forOrder( $order, (int) $row['user_id'] );
 				}
 			}return $this->json( $body + array( 'replayed' => true ) );}
 		$order = ! empty( $row['order_id'] ) ? wc_get_order( (int) $row['order_id'] ) : null;
@@ -464,7 +461,7 @@ final class MobileCheckoutController {
 		}
 		if ( $order && (int) $order->get_customer_id() === (int) $row['user_id'] && $order->get_payment_method() === 'bacs' && $order->has_status( array( 'on-hold', 'processing', 'completed' ) ) ) {
 			try {
-				return $this->finalizeAccepted( $row, $order, array( 'status' => $order->is_paid() ? 'complete' : 'awaiting_bank_transfer' ), 200 );} catch ( \Throwable $error ) {
+				return $this->finalizeAccepted( $row, $order, MobileOrderPayment::forOrder( $order, (int) $row['user_id'] ), 200 );} catch ( \Throwable $error ) {
 				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Operational failure signal contains no token, phone, customer data or exception details.
 				error_log( 'Digitalogic native checkout awaits canonical cart finalization.' );}
 		}
@@ -501,7 +498,7 @@ final class MobileCheckoutController {
 			$latest = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE operation_key=%s FOR UPDATE', $operations, $row['operation_key'] ), ARRAY_A );
 			if ( $latest && 'accepted' === $latest['state'] && $latest['response'] ) {
 				$wpdb->query( 'COMMIT' );
-				return $this->json( json_decode( $latest['response'], true ) + array( 'replayed' => true ) );}
+				return $this->operationResponse( $latest );}
 			$review   = false;
 			$snapshot = json_decode( $row['cart_snapshot'] ?? 'null', true );
 			if ( ! $cart || ! is_array( $snapshot ) ) {

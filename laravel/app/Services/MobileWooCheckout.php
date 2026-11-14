@@ -368,6 +368,7 @@ final class MobileWooCheckout {
 		$terms    = $terms_id ? get_post( $terms_id ) : null;
 		return array(
 			'cart_revision'     => (int) $context['cart']['revision'],
+			'items'             => self::presentItems( $this->cart->get_cart() ),
 			'schema'            => $schema,
 			'profile'           => array(
 				'billing'  => WC()->customer->get_billing(),
@@ -401,6 +402,45 @@ final class MobileWooCheckout {
 			'quote_id'          => null,
 			'expires_at'        => null,
 		);
+	}
+	/**
+	 * Project the exact prepared Woo lines reviewed and fingerprinted for checkout.
+	 *
+	 * Unit/subtotal amounts precede line discounts and exclude tax. line_total is
+	 * the prepared discounted amount, also excluding tax; response totals include
+	 * the canonical tax/shipping calculation. No catalog price lookup is used.
+	 *
+	 * @param array $lines Prepared WC_Cart lines.
+	 * @return array Canonical purchase review snapshot in response minor units.
+	 * @throws \RuntimeException When a prepared line cannot be represented safely.
+	 */
+	public static function presentItems( array $lines ): array {
+		$items = array();
+		foreach ( $lines as $line ) {
+			$product  = $line['data'] ?? null;
+			$quantity = $line['quantity'] ?? null;
+			if ( ! is_object( $product ) || ! is_callable( array( $product, 'get_name' ) )
+				|| ! is_numeric( $quantity ) || (int) $quantity <= 0 || (float) (int) $quantity !== (float) $quantity
+				|| ! is_numeric( $line['line_subtotal'] ?? null ) || ! is_numeric( $line['line_total'] ?? null )
+				|| ! is_finite( (float) $line['line_subtotal'] ) || ! is_finite( (float) $line['line_total'] )
+				|| (float) $line['line_subtotal'] < 0 || (float) $line['line_total'] < 0 ) {
+				throw new \RuntimeException( 'Prepared checkout line unavailable.' );
+			}
+			$image_id = $product->get_image_id();
+			$image    = $image_id ? wp_get_attachment_image_url( $image_id, 'woocommerce_thumbnail' ) : false;
+			$items[]  = array(
+				'product_id'    => (int) $line['product_id'],
+				'variation_id'  => (int) ( $line['variation_id'] ?? 0 ),
+				'name'          => wp_strip_all_tags( $product->get_name() ),
+				'sku'           => (string) $product->get_sku(),
+				'quantity'      => (int) $quantity,
+				'unit_price'    => self::money( (float) $line['line_subtotal'] / (int) $quantity ),
+				'line_subtotal' => self::money( $line['line_subtotal'] ),
+				'line_total'    => self::money( $line['line_total'] ),
+				'image'         => is_string( $image ) && '' !== $image ? $image : null,
+			);
+		}
+		return $items;
 	}
 	/**
 	 * Quote/order locations follow the actual selected billing/shipping address.

@@ -19,6 +19,7 @@ use Digitalogic\Laravel\Services\MobileGoogleContinuation as GoogleContinuation;
 use Digitalogic\Laravel\Services\MobilePhoneResolution as PhoneResolution;
 use Digitalogic\Laravel\Services\MobileRegistrationStore as Registration;
 use Digitalogic\Laravel\Services\MobileAddresses as Addresses;
+use Digitalogic\Laravel\Services\MobileOrderPayment;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -663,6 +664,7 @@ final class MobileIdentityController {
 				'currency'             => $order->get_currency(),
 				'line_items'           => $lines,
 				'payment_method_title' => $order->get_payment_method_title(),
+				'payment'              => MobileOrderPayment::forOrder( $order, (int) $session['user_id'] ),
 			);
 		}
 		$more = $page < $result->max_num_pages;
