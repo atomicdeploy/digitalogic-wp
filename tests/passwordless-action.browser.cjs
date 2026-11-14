@@ -229,15 +229,19 @@ async function checkEmailGate(page, labels) {
 }
 
 async function checkSmsAction(page, labels) {
+    let attempts = 0;
     await page.route('https://digitalogic.test/wp-admin/admin-ajax.php', route => {
         if (route.request().postData().includes('name="sms_otp"')) {
             assert.match(route.request().postData(), /name="rememberme"\r\n\r\n1/);
+            attempts++;
+            if (attempts === 1) return route.fulfill({ status: 503, body: 'error' });
+            if (attempts === 2) return route.fulfill({ json: { success: false, data: { message: 'Code expired. Request a new code.' } } });
             return route.fulfill({ json: { success: true, data: { redirect: '/complete' } } });
         }
         assert.doesNotMatch(route.request().postData(), /name="rememberme"/);
         return route.fulfill({ json: {
             success: true,
-            data: { html: `<div class="digits-form_tab_container"><div class="digits-form_tab_body digits-tab_active">
+            data: { resend_timer: 2, html: `<div class="digits-form_tab_container"><div class="digits-form_tab_body digits-tab_active">
             <button type="button" class="digits-form_otp_selector" data-type="email_otp">Email</button>
             <button type="button" class="digits-form_otp_selector" data-type="sms_otp">SMS</button>
         </div></div>` }
@@ -248,16 +252,44 @@ async function checkSmsAction(page, labels) {
         const choice = event.target.closest('.digits-form_otp_selector');
         if (!choice) { return; }
         document.body.dataset.selectedChannel = choice.dataset.type;
-        choice.parentElement.innerHTML = '<input name="sms_otp" class="otp_input" maxlength="6">';
+        choice.parentElement.innerHTML = '<div class="digits-form_input_row"><div class="digits-form_input">' +
+            '<input name="sms_otp" class="otp_input" maxlength="6"><span class="digits-form_input_info">ⓘ</span>' +
+            '</div></div><button type="button" class="digits-form_resend_otp digits_resend_disabled">Resend</button>';
     }));
     await page.locator('input[name="digits_phone"]').fill('09120000000');
     await page.getByRole('button', { name: labels.sendSmsCode, exact: true }).click();
-    await page.locator('.dg-otp-slot input').first().waitFor();
+    const first = page.locator('.dg-otp-slot input').first();
+    await first.waitFor();
     assert.equal(await page.locator('body').getAttribute('data-selected-channel'), 'sms_otp');
+    const caption = page.locator('.dg-otp-instructions');
+    assert.equal(await caption.locator('.digits-form_input_info').count(), 1);
+    const resend = page.locator('.dg-otp-resend');
+    await resend.and(page.locator('[aria-disabled="true"]')).waitFor();
+    assert.match(await resend.evaluate(el => getComputedStyle(el).backgroundImage), /conic-gradient/);
+    await page.waitForFunction(() => parseFloat(document.querySelector('.dg-otp-resend').style.getPropertyValue('--dg-resend-progress')) > 0);
+    await resend.and(page.locator('[aria-disabled="false"]')).waitFor();
+    assert.equal(await resend.evaluate(el => el.style.getPropertyValue('--dg-resend-progress')), '100%');
     await page.getByRole('checkbox', { name: 'Remember me' }).check();
-    await page.locator('.dg-otp-slot input').first().focus();
-    await page.keyboard.insertText('123456');
-    await page.getByRole('button', { name: labels.verifyCode, exact: true }).click();
+    await first.focus();
+    await first.evaluate(el => {
+        const data = new DataTransfer();
+        data.setData('text/plain', '۱۲٣۴٥۶');
+        el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }));
+    });
+    const verify = page.getByRole('button', { name: labels.verifyCode, exact: true });
+    assert.equal(await verify.evaluate(el => document.activeElement === el), true);
+    await verify.click();
+    const alert = page.locator('.dg-otp-feedback');
+    await alert.waitFor();
+    assert.match(await alert.innerText(), /HTTP 503/);
+    assert.equal(await page.locator('.dg-otp-editor[aria-invalid]').count(), 0);
+    assert.equal(await page.locator('.dg-toast, .dig_popmessage').count(), 0);
+    await verify.click();
+    await page.locator('.dg-otp-editor[aria-invalid="true"]').waitFor();
+    assert.equal(await alert.innerText(), 'Code expired. Request a new code.');
+    assert.equal(await first.evaluate(el => document.activeElement === el), true);
+    assert.equal(await page.locator('.dg-toast, .dig_popmessage').count(), 0);
+    await verify.click();
     await page.waitForURL('**/complete');
 }
 
@@ -362,12 +394,12 @@ async function checkOtpEditor(page, channel) {
         return { animation: style.animationName, height: style.height };
     });
     assert.equal(await form.getAttribute('data-dg-otp-cursor'), 'bar');
-    assert.deepEqual(await cursor(), { animation: 'dg-otp-bar-pulse', height: '3px' });
+    assert.deepEqual(await cursor(), { animation: 'dg-otp-bar-pulse', height: '18px' });
     await form.evaluate(element => { element.dataset.dgOtpCursor = 'circle'; });
     assert.deepEqual(await cursor(), { animation: 'dg-otp-caret', height: '12px' });
     await form.evaluate(element => { element.dataset.dgOtpCursor = 'bar'; });
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    assert.deepEqual(await cursor(), { animation: 'none', height: '3px' });
+    assert.deepEqual(await cursor(), { animation: 'none', height: '18px' });
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     const entry = await cells.first().evaluate(cell => {
         cell.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: '۱', cancelable: true }));
@@ -387,6 +419,7 @@ async function checkOtpEditor(page, channel) {
     assert.equal(await firstSlot.locator('.dg-otp-roll').count(), 0);
     await page.keyboard.insertText('۱۲۳۴۵۶');
     assert.equal(await page.locator(`input[name="${channel}_otp"]`).inputValue(), '123456');
+    assert.equal(await page.locator('.dg-otp-editor :focus').count(), 0);
 }
 
 async function checkLoginSwitchers(browser) {

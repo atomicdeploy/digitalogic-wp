@@ -113,6 +113,7 @@ function createHarness(options) {
     const window = {
         DigitalogicBranding: config,
         libphonenumber: options.phoneNumbers,
+        clearTimeout() {},
         URL,
         location: { href: options.locationHref || 'https://digitalogic.test/login/' }
     };
@@ -174,7 +175,11 @@ test('a successful Digits login resumes its same-site OpenID request with the or
     target.searchParams.set('response_type', 'code');
     target.searchParams.set('state', 'probe+state/&=%');
     const hidden = {value: target.href};
-    const form = {offsetWidth: 300, matches: () => true, closest: () => ({}), querySelector: () => hidden};
+    const feedback = { classList: { toggle() {} } };
+    const form = {offsetWidth: 300, matches: () => true, closest: () => ({}),
+        querySelector: selector => selector === 'input[name="digits_redirect_page"]' ? hidden :
+            selector === '.dg-digits-inline-message' ? feedback : null,
+        querySelectorAll: () => []};
     document.activeElement = {closest: () => form};
     let guarded;
     window.jQuery = {ajax(settings) { guarded = settings; }};
@@ -306,7 +311,7 @@ test('WebOTP fills a code received before the SMS response without skipping Reme
         matches: () => true,
         closest: () => ({}),
         offsetWidth: 200,
-        querySelector: () => ({}),
+        querySelector: (selector) => selector.includes('rememberme') ? {} : null,
         querySelectorAll: (selector) => selector.includes('sms_otp') ? [otp] : [primary]
     };
     harness.document.activeElement = {closest: () => form};
