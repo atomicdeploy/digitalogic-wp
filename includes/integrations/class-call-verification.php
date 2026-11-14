@@ -546,7 +546,7 @@ final class Digitalogic_Call_Verification {
 		$binding = $this->browser_binding( false );
 		$csrf    = (string) $request->get_header( self::CSRF_HEADER );
 		$result  = $this->read_challenge_status( $id, $binding, $csrf );
-		if ( is_wp_error( $result ) || ! $request->has_param( 'redirect_to' ) || ! $this->same_origin( $request ) ) {
+		if ( is_wp_error( $result ) || null === $request->get_param( 'redirect_to' ) || ! $this->same_origin( $request ) ) {
 			return $result;
 		}
 		$data = $result->get_data();
