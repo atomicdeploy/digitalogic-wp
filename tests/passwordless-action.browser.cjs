@@ -189,14 +189,23 @@ async function checkEmailGate(page, labels) {
             return true;
         } };
     });
-    await primary.click();
-    assert.equal(await page.locator('body').getAttribute('data-call-number'), '+12025550123');
-    await page.locator('[data-call-instructions] input[name="rememberme"]').waitFor();
-    await page.evaluate(() => {
-        document.querySelector('[data-call-instructions]').hidden = true;
-        document.querySelector('.dg-digits-login-shell').classList.remove('dg-call-code-active');
-    });
-    assert.equal(await page.getByRole('checkbox', { name: 'Remember me' }).count(), 0);
+    const call = page.locator('input[name="dg_phone_channel"][value="call"]');
+    for (const [typed, expected] of [['+12025550123', '+12025550123'], ['+۹۸۹۱۲۰۰۰۰۰۰۰', '+989120000000']]) {
+        await phone.fill(typed);
+        assert.equal(await call.isEnabled(), true, typed);
+        await call.check();
+        assert.equal(await primary.innerText(), labels.getCallCode);
+        await primary.click();
+        assert.equal(await page.locator('body').getAttribute('data-call-number'), expected);
+        await page.locator('[data-call-instructions] input[name="rememberme"]').waitFor();
+        await page.evaluate(() => {
+            document.querySelector('[data-call-instructions]').hidden = true;
+            document.querySelector('.dg-digits-login-shell').classList.remove('dg-call-code-active');
+        });
+        assert.equal(await page.getByRole('checkbox', { name: 'Remember me' }).count(), 0);
+    }
+    await page.locator('input[name="dg_phone_channel"][value="sms"]').check();
+    assert.equal(await primary.innerText(), labels.sendSmsCode);
     await phone.fill('+982112345678');
     assert.equal(await primary.innerText(), labels.getCallCode);
     await phone.fill('preview@');
@@ -263,6 +272,12 @@ async function checkSmsAction(page, labels) {
     assert.equal(await page.locator('body').getAttribute('data-selected-channel'), 'sms_otp');
     const caption = page.locator('.dg-otp-instructions');
     assert.equal(await caption.locator('.digits-form_input_info').count(), 1);
+    await page.addStyleTag({ content: '#login .dg-digits-login-shell .digits-tab_active { display: flex !important; }' });
+    const captionBox = await caption.boundingBox();
+    const firstBox = await first.boundingBox();
+    const lastBox = await page.locator('.dg-otp-slot input').last().boundingBox();
+    assert.ok(captionBox.y + captionBox.height + 8 <= firstBox.y, 'Caption must stay above the code even in a flex provider tab');
+    assert.ok(Math.abs(firstBox.y - lastBox.y) < 1, 'Digits stay in one row');
     const resend = page.locator('.dg-otp-resend');
     await resend.and(page.locator('[aria-disabled="true"]')).waitFor();
     assert.match(await resend.evaluate(el => getComputedStyle(el).backgroundImage), /conic-gradient/);
