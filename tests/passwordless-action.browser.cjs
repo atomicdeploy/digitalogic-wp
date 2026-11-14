@@ -79,7 +79,7 @@ async function render(page, direction, labels, native, search = '') {
                         <input name="digits_phone">
                       </div>
                     </div>
-                    <div class="digits-form_tab_body"><input name="digits_email"></div>
+                    <div class="digits-form_tab_body"><div class="digits-form_input_row"><input name="digits_email"></div></div>
                   </div>
                   ${native ? `<template id="native-password-step"><div class="digits-form_tab_container">
                     <div class="digits-form_input_row">
@@ -106,6 +106,8 @@ async function render(page, direction, labels, native, search = '') {
     await page.evaluate(labels => {
         window.DigitalogicBranding = {
             labels,
+            ajaxUrl: '/email-domain',
+            emailDomainNonce: 'fixture',
             rememberedAccounts: [{ login: 'known-user', avatar: '/known-avatar.svg' }]
         };
     }, labels);
@@ -126,6 +128,66 @@ async function render(page, direction, labels, native, search = '') {
             });
         });
     }
+}
+
+async function checkEmailGate(page) {
+    const phone = page.locator('input[name="digits_phone"]');
+    const email = page.locator('input[name="digits_email"]');
+    const form = page.locator('form.digloginpage');
+    const primary = form.locator('.digits-form_login > .digits-form_submit-btn');
+    const status = form.locator('.dg-email-domain-status');
+    const colors = new Set();
+    let releaseSlow;
+    let serviceCalls = 0;
+    await page.route('https://digitalogic.test/email-domain', async route => {
+        const domain = new URLSearchParams(route.request().postData()).get('domain');
+        if (domain === 'slow.example') {
+            await new Promise(resolve => { releaseSlow = resolve; });
+            await route.fulfill({ json: { success: true, data: { valid: true } } });
+            return;
+        }
+        if (domain === 'retry.example' && ++serviceCalls === 1) {
+            await route.fulfill({ status: 503 });
+            return;
+        }
+        await route.fulfill({ json: { success: true, data: { valid: domain !== 'invalid.example' } } });
+    });
+    async function expectState(state, enabled) {
+        await status.and(page.locator(`[data-state="${state}"]`)).waitFor();
+        assert.equal(await primary.isEnabled(), enabled, state);
+        colors.add(await status.evaluate(element => getComputedStyle(element).color));
+    }
+    assert.equal(await primary.isDisabled(), true);
+    await phone.fill('0912');
+    assert.equal(await primary.isDisabled(), true);
+    await phone.fill('09120000000');
+    assert.equal(await primary.isEnabled(), true);
+    await phone.fill('preview@');
+    assert.equal(await primary.isDisabled(), true);
+    await email.blur();
+    await expectState('format', false);
+    await email.fill('preview@slow.example');
+    await expectState('checking', false);
+    const slowRequest = page.waitForRequest(request => request.postData()?.includes('slow.example'));
+    await email.blur();
+    await slowRequest;
+    await form.evaluate(element => element.requestSubmit());
+    assert.equal(await form.locator('.dg-username-password-step').count(), 0);
+    await email.fill('preview@invalid.example');
+    await expectState('invalid', false);
+    releaseSlow();
+    await expectState('invalid', false);
+    assert.equal(await email.getAttribute('aria-invalid'), 'true');
+    await email.fill('preview@retry.example');
+    await expectState('unavailable', false);
+    await status.getByRole('button').click();
+    await expectState('valid', true);
+    assert.equal(await email.getAttribute('aria-invalid'), 'false');
+    assert.equal(colors.size, 4);
+    await email.fill('preview');
+    assert.equal(await primary.isEnabled(), true);
+    await phone.fill('');
+    assert.equal(await primary.isDisabled(), true);
 }
 
 async function checkVerificationLabels(page, labels) {
@@ -325,6 +387,10 @@ async function checkOtpEditor(page, channel) {
             assert.equal(await recovery.locator('.dg-auth-back').isVisible(), false);
             assert.equal(new URL(recovery.url()).searchParams.has('recover'), false);
             await recovery.close();
+            const emailGate = await browser.newPage({ viewport: { width, height: 800 } });
+            await render(emailGate, direction, labels, false);
+            await checkEmailGate(emailGate);
+            await emailGate.close();
         }
         console.log('Passwordless actions, OTP, and first-step-only sign-in options passed in RTL and LTR.');
     } finally {
