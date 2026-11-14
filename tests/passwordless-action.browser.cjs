@@ -81,12 +81,17 @@ async function render(page, direction, labels, native, search = '') {
                     </div>
                     <div class="digits-form_tab_body"><input name="digits_email"></div>
                   </div>
-                  ${native ? `<div class="digits-form_tab_container">
-                    <input type="password" value="fixture">
+                  ${native ? `<template id="native-password-step"><div class="digits-form_tab_container">
+                    <div class="digits-form_input_row">
+                      <div class="digits-form_input digits_password_inp_row">
+                        <input name="password" type="password" required>
+                        <button class="digits_password_eye" type="button">Vendor eye</button>
+                      </div>
+                    </div>
                     <button class="digits-form_tab-item" data-value="otp" type="button">SMS tab</button>
                     <button class="digits-form_otp_selector" data-type="sms_otp" type="button">Request SMS</button>
                     <button class="digits-form_show_forgot_password" type="button">${labels.skipPasswordCaption}</button>
-                  </div>` : ''}
+                  </div></template>` : ''}
                 </div>
                 <button class="digits-form_submit-btn" type="submit"><span class="digits-form_button-text">Continue</span></button>
                 <button class="digits-form_passwordless_login" type="button">Passkey</button>
@@ -103,9 +108,6 @@ async function render(page, direction, labels, native, search = '') {
             labels,
             rememberedAccounts: [{ login: 'known-user', avatar: '/known-avatar.svg' }]
         };
-        document.querySelector('[data-value="otp"]')?.addEventListener('click', () => {
-            document.body.dataset.smsTabSelected = 'true';
-        });
     }, labels);
     await page.route('https://digitalogic.test/known-avatar.svg', route => route.fulfill({
         contentType: 'image/svg+xml',
@@ -115,6 +117,15 @@ async function render(page, direction, labels, native, search = '') {
     await page.addScriptTag({ path: phoneLibrary });
     await page.addScriptTag({ path: branding });
     await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
+    if (native) {
+        await page.evaluate(() => {
+            const template = document.getElementById('native-password-step');
+            template.replaceWith(template.content);
+            document.querySelector('[data-value="otp"]').addEventListener('click', () => {
+                document.body.dataset.smsTabSelected = 'true';
+            });
+        });
+    }
 }
 
 async function checkVerificationLabels(page, labels) {
@@ -153,6 +164,44 @@ async function checkIdentityPrompt(page, expected) {
     assert.equal(await visibleIdentity.getAttribute('aria-label'), expected);
 }
 
+async function checkPasswordField(page, labels, touch) {
+    const field = page.locator('.dg-password-field:visible');
+    await field.waitFor({ timeout: 4000 });
+    const input = field.locator('input');
+    const toggle = field.getByRole('button');
+    assert.equal(await field.count(), 1);
+    assert.equal(await page.locator('.wp-hide-pw:visible, .digits_password_eye:visible').count(), 0);
+    await input.fill('layout-test');
+    await input.evaluate(element => element.setSelectionRange(2, 6, 'backward'));
+    assert.equal(await toggle.getAttribute('aria-label'), labels.showPassword);
+    if (touch) {
+        await toggle.tap();
+    } else {
+        await toggle.click();
+    }
+    assert.equal(await input.getAttribute('type'), 'text');
+    assert.equal(await toggle.getAttribute('aria-label'), labels.hidePassword);
+    const revealed = await input.evaluate(element => [
+        document.activeElement === element, element.selectionStart, element.selectionEnd, element.selectionDirection
+    ]);
+    assert.deepEqual(revealed, [true, 2, 6, 'backward']);
+    await input.press('Tab');
+    assert.ok(await toggle.evaluate(element => document.activeElement === element));
+    await page.keyboard.press('Space');
+    assert.equal(await input.getAttribute('type'), 'password');
+    assert.equal(await toggle.getAttribute('aria-label'), labels.showPassword);
+    assert.ok(await toggle.evaluate(element => document.activeElement === element));
+    assert.equal(await input.inputValue(), 'layout-test');
+    assert.equal(await input.evaluate(element => getComputedStyle(element).direction), 'ltr');
+    assert.ok(await toggle.evaluate(element => {
+        const button = element.getBoundingClientRect();
+        const icon = element.querySelector('svg').getBoundingClientRect();
+        const row = element.parentElement.getBoundingClientRect();
+        const center = rect => (rect.top + rect.bottom) / 2;
+        return Math.abs(center(icon) - center(button)) < 1 && Math.abs(center(button) - center(row)) < 1;
+    }));
+}
+
 async function checkAlternatives(page, visible) {
     for (const selector of ['.digits-use_social-logins', '#digits_google_login', '.dg-passkey-options summary']) {
         assert.equal(await page.locator(selector).isVisible(), visible, selector);
@@ -187,12 +236,15 @@ async function checkOtpEditor(page, channel) {
                 skipPassword, skipPasswordCaption,
                 identityPlaceholder: direction === 'rtl' ? 'نام کاربری، ایمیل یا شماره تلفن' : 'Username, email, or phone number',
                 contactPlaceholder: direction === 'rtl' ? 'ایمیل یا شماره تلفن' : 'Email address or phone number',
+                showPassword: direction === 'rtl' ? 'نمایش رمز عبور' : 'Show password',
+                hidePassword: direction === 'rtl' ? 'پنهان کردن رمز عبور' : 'Hide password',
+                requiredPassword: direction === 'rtl' ? 'رمز عبور را وارد کنید.' : 'Enter your password.',
                 passkeyLogin: direction === 'rtl' ? 'ورود با کلید عبور' : 'Sign in with a passkey',
                 sendSmsCode: direction === 'rtl' ? 'ارسال کد پیامکی' : 'Send SMS code',
                 sendEmailCode: direction === 'rtl' ? 'ارسال کد به ایمیل' : 'Send email code'
             };
             for (const native of [true, false]) {
-                const page = await browser.newPage({ viewport: { width, height: 800 } });
+                const page = await browser.newPage({ viewport: { width, height: 800 }, hasTouch: direction === 'rtl' });
                 await render(page, direction, labels, native);
                 await checkAlternatives(page, !native);
                 if (!native) {
@@ -225,24 +277,14 @@ async function checkOtpEditor(page, channel) {
                         };
                     });
                     assert.deepEqual(layout, { above: true, centered: true, size: 64, radius: '50%' });
-                    const eye = page.locator('.dg-username-password-toggle');
-                    const password = page.locator('.dg-username-password-input');
-                    await password.fill('layout-test');
-                    for (const type of ['text', 'password']) {
-                        await eye.click();
-                        await page.waitForFunction(value => document.querySelector('.dg-username-password-input').type === value, type);
-                        assert.equal(await password.evaluate(e => getComputedStyle(e).direction), 'ltr');
-                        const eyeLayout = await eye.evaluate(e => {
-                            const button = e.getBoundingClientRect();
-                            const icon = e.querySelector('svg').getBoundingClientRect();
-                            const row = e.parentElement.getBoundingClientRect();
-                            const center = rect => (rect.top + rect.bottom) / 2;
-                            return [Math.abs(center(icon) - center(button)), Math.abs(center(button) - center(row)), getComputedStyle(e).color];
-                        });
-                        assert.ok(eyeLayout[0] < 1 && eyeLayout[1] < 1, 'Password eye is centered vertically');
-                        assert.notEqual(eyeLayout[2], 'rgb(0, 0, 0)');
-                    }
                 }
+                await checkPasswordField(page, labels, direction === 'rtl');
+                const password = page.locator('input.dg-password-input:visible');
+                await password.fill('   ');
+                await password.press('Enter');
+                assert.equal(await page.locator('.dg-digits-inline-message').innerText(), labels.requiredPassword);
+                assert.ok(await password.evaluate(element => document.activeElement === element));
+                await password.fill('layout-test');
                 const button = await checkAction(page, labels, direction);
                 await button.click();
                 await checkAlternatives(page, false);

@@ -228,7 +228,6 @@
         }
 
         syncToggleLabels(value);
-        syncPasswordToggle();
     }
 
     function toggleTheme(event) {
@@ -567,13 +566,11 @@
             'body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-form_tab_body.digits-tab_active{display:block!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity:not([data-dg-identity="phone"]) .digits-form_countrycode{display:none!important;}',
             'body.login .dg-digits-login-shell :is(.digits-form_input_row, .digits-form_input){border-color:var(--dg-border)!important;border-radius:16px!important;color:var(--dg-text)!important;}',
-            'body.login .dg-digits-login-shell .digits-form_input_row:not(.dg-username-password-row,.digits-form_rememberme,:has(.dg-otp-editor)){min-height:58px!important;margin-block:11px!important;padding-inline:14px!important;background:var(--dg-input-bg)!important;}',
+            'body.login .dg-digits-login-shell .digits-form_input_row:not(.digits-form_rememberme,:has(.dg-otp-editor,.dg-password-field)){min-height:58px!important;margin-block:11px!important;padding-inline:14px!important;background:var(--dg-input-bg)!important;}',
             'body.login .dg-digits-login-shell .digits-form_rememberme{display:flex!important;align-items:center!important;justify-content:flex-start!important;min-height:auto!important;height:auto!important;margin-block:4px 24px!important;padding:0!important;border:0!important;background:transparent!important;overflow:visible!important;}',
             'body.login .dg-digits-login-shell .digits-form_rememberme :is(.digits-form_input,.dig_opt_mult_con,.dig_opt_mult,label,.dig_input_wrapper,.dig_input_wrapper>div){display:inline-flex!important;align-items:center!important;justify-content:flex-start!important;gap:10px!important;width:auto!important;min-height:0!important;margin:0!important;padding:0!important;border:0!important;background:transparent!important;line-height:1.35!important;}',
             'body.login .dg-digits-login-shell .digits-form_rememberme .dig_input_wrapper::before,body.login .dg-digits-login-shell .digits-form_rememberme .dig_input_wrapper::after,body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::before,body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::after,html[dir="rtl"] body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::before,html[dir="rtl"] body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::after{content:none!important;display:none!important;opacity:0!important;visibility:hidden!important;}',
             'body.login .dg-digits-login-shell .digits-form_input input:not(.digits_login_remember_me,.dg-otp-slot input){min-height:48px!important;margin:0!important;border:0!important;background:transparent!important;color:var(--dg-text)!important;box-shadow:none!important;font-family:var(--dg-font)!important;}',
-            'body.login .dg-digits-login-shell :is(input[type="password"],input.dg-password-visible,#user_pass,.dg-username-password-input){direction:ltr!important;text-align:left!important;font-family:ui-monospace,"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace!important;font-variant-numeric:tabular-nums!important;}',
-            'body.login .dg-digits-login-shell :is(input[type="password"],input.dg-password-visible,#user_pass,.dg-username-password-input)::placeholder{font-family:var(--dg-placeholder-font,var(--dg-font))!important;font-variant-numeric:normal!important;letter-spacing:0!important;}',
             'body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me{appearance:none!important;-webkit-appearance:none!important;display:inline-grid!important;place-items:center!important;visibility:visible!important;opacity:1!important;inline-size:22px!important;block-size:22px!important;width:22px!important;height:22px!important;min-width:22px!important;min-height:22px!important;max-width:22px!important;max-height:22px!important;flex:0 0 22px!important;margin:0!important;padding:0!important;line-height:1!important;border:1px solid var(--dg-border)!important;border-radius:8px!important;background:color-mix(in srgb,var(--dg-panel-soft) 72%,transparent)!important;box-shadow:inset 0 1px 0 color-mix(in srgb,#ffffff 10%,transparent),var(--dg-shadow-soft)!important;transform:scale(1)!important;transition:background-color .18s ease,background-image .18s ease,border-color .18s ease,box-shadow .18s ease,transform .18s cubic-bezier(.2,.8,.2,1)!important;}',
             'body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me::before{content:""!important;display:block!important;visibility:visible!important;width:6px!important;height:11px!important;margin:-1px 0 0!important;border:solid #fff!important;border-width:0 2px 2px 0!important;opacity:0;transform:rotate(45deg) scale(.62);transform-origin:center;transition:opacity .16s ease,transform .18s cubic-bezier(.2,.8,.2,1);}',
             'body.login .dg-digits-login-shell .digits-form_rememberme .digits_login_remember_me:active,body.login #rememberme:active{transform:scale(.92)!important;}',
@@ -902,75 +899,75 @@
         };
     }
 
-    function passwordInputForToggle(button) {
-        var scope = button && button.closest('.wp-pwd, .user-pass-wrap, .dg-username-password-row, .password-input-wrapper, p, div');
-        var input = scope ? scope.querySelector('input[type="password"], input[type="text"].dg-password-visible, input.dg-username-password-input, #user_pass') : null;
-
-        return input || document.querySelector('#user_pass');
-    }
+    var passwordFieldSelector = 'input:is([type="password"], .dg-password-input, [autocomplete="current-password"], [autocomplete="new-password"], #user_pass, #pass1):not([type="hidden"])';
 
     function syncPasswordToggle(button, input) {
-        if (!document.body || !document.body.classList.contains('login')) {
-            return;
-        }
-
-        if (!button || !input) {
-            document.querySelectorAll('.wp-hide-pw').forEach(function (toggle) {
-                syncPasswordToggle(toggle, passwordInputForToggle(toggle));
-            });
-            return;
-        }
-
-        if (!button || !input) {
-            return;
-        }
-
         var isVisible = input.type === 'text';
         var label = isVisible
             ? getLabel('hidePassword', 'Hide password')
             : getLabel('showPassword', 'Show password');
-        button.classList.toggle('is-visible', isVisible);
+        button.disabled = input.disabled;
         button.setAttribute('aria-label', label);
-        button.querySelector(':scope > .dashicons')?.remove();
         putAuthIcon(button, isVisible ? 'eyeOff' : 'eye');
-        input.dir = 'ltr';
-        input.classList.toggle('dg-password-visible', isVisible);
     }
 
-    function bindPasswordToggle() {
-        document.querySelectorAll('.wp-hide-pw').forEach(function (visibilityButton) {
-            var password = passwordInputForToggle(visibilityButton);
-            var restoreSelection = null;
+    function mountPasswordField(input) {
+        var parent = input.parentElement;
+        if (parent.classList.contains('dg-password-field')) {
+            syncPasswordToggle(parent.querySelector('.dg-password-toggle'), input);
+            return;
+        }
 
-            if (!password || visibilityButton.dataset.dgPasswordReady === 'true') {
-                return;
-            }
+        // Keep the provider's input, including its name, validation and event handlers.
+        var providerField = input.closest('.wp-pwd, .digits_password_inp_row, .password-input-wrapper') || parent;
+        providerField.querySelectorAll('.wp-hide-pw, .digits_password_eye').forEach(function (button) { button.remove(); });
+        var field = document.createElement('div');
+        field.className = 'dg-password-field';
+        var toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'dg-password-toggle';
+        if (input.id) { toggle.setAttribute('aria-controls', input.id); }
+        input.classList.add('dg-password-input');
+        input.dir = 'ltr';
+        input.before(field);
+        field.append(input, toggle);
+        putAuthIcon(field, 'lock');
+        syncPasswordToggle(toggle, input);
 
-            visibilityButton.dataset.dgPasswordReady = 'true';
-            visibilityButton.addEventListener('mousedown', function (event) {
-                restoreSelection = capturePasswordSelection(password);
+        toggle.addEventListener('pointerdown', function (event) {
+            if (event.button === 0 && document.activeElement === input) {
                 event.preventDefault();
-            });
-            visibilityButton.addEventListener('touchstart', function () {
-                restoreSelection = capturePasswordSelection(password);
-            }, { passive: true });
-            visibilityButton.addEventListener('click', function () {
-                var previousType = password.type;
-                var restore = restoreSelection || capturePasswordSelection(password);
-
-                window.setTimeout(function () {
-                    if (password.type === previousType) {
-                        password.type = previousType === 'password' ? 'text' : 'password';
-                    }
-
-                    syncPasswordToggle(visibilityButton, password);
-                    restore();
-                    restoreSelection = null;
-                }, 0);
-            });
+            }
         });
+        toggle.addEventListener('click', function () {
+            if (input.disabled || toggle.getAttribute('aria-disabled') === 'true') { return; }
+            var restore = capturePasswordSelection(input);
+            input.type = input.type === 'password' ? 'text' : 'password';
+            syncPasswordToggle(toggle, input);
+            restore();
+        });
+    }
 
-        syncPasswordToggle();
+    function observePasswordFields() {
+        var login = document.querySelector('#login');
+        if (!login) { return; }
+        login.querySelectorAll(passwordFieldSelector).forEach(mountPasswordField);
+        new MutationObserver(function (mutations) {
+            var fields = new Set();
+            mutations.forEach(function (mutation) {
+                if (mutation.type === 'attributes' && mutation.target.matches(passwordFieldSelector)) {
+                    fields.add(mutation.target);
+                }
+                mutation.addedNodes.forEach(function (node) {
+                    if (node.nodeType !== 1 || node.matches('.dg-password-field')) { return; }
+                    if (node.matches(passwordFieldSelector)) { fields.add(node); }
+                    node.querySelectorAll(passwordFieldSelector).forEach(function (input) { fields.add(input); });
+                });
+            });
+            fields.forEach(function (input) {
+                if (login.contains(input)) { mountPasswordField(input); }
+            });
+        }).observe(login, { childList: true, subtree: true, attributes: true, attributeFilter: ['type', 'disabled'] });
     }
 
     function lockPendingForm(form, button) {
@@ -1262,6 +1259,7 @@
         form.querySelector('.dg-recovery-password-hint').id = 'dg-recovery-password-hint';
         dialog.appendChild(form);
         document.body.appendChild(dialog);
+        mountPasswordField(input);
         skip.addEventListener('click', continueSignIn);
         dialog.addEventListener('cancel', function (event) {
             event.preventDefault();
@@ -1311,7 +1309,7 @@
 
     function visibleDigitsPassword(form) {
         return Array.prototype.find.call(
-            form.querySelectorAll('.digits-form_tab_wrapper input:is([type="password"], [autocomplete="current-password"], .dg-password-visible)'),
+            form.querySelectorAll('.digits-form_tab_wrapper input:is([type="password"], [autocomplete="current-password"], .dg-password-input)'),
             function (input) { return !input.disabled && isVisibleElement(input); }
         );
     }
@@ -1326,6 +1324,7 @@
 
     function startNativeDigitsSms(password, tab) {
         password.value = '';
+        password.type = 'password';
         tab.click();
         var step = tab.closest?.('.digits-form_tab_container');
         var channel = step?.querySelector('.digits-tab_active .digits-form_otp_selector:is([data-type="sms_otp"], [data-type="email_otp"]):not(.auto-click)');
@@ -1513,11 +1512,7 @@
                 '<span class="dg-username-login-avatar" aria-hidden="true"></span>',
                 '<bdi class="dg-username-login-value"></bdi>',
                 '</div>',
-                '<div class="digits-form_input_row dg-username-password-row">',
-                '<span class="dashicons dashicons-lock dg-digits-row-icon" aria-hidden="true"></span>',
-                '<input class="dg-username-password-input" type="password" dir="ltr" autocomplete="current-password" required aria-label="' + passwordLabel + '" placeholder="' + passwordLabel + '">',
-                '<button type="button" class="button wp-hide-pw dg-username-password-toggle" aria-label="' + escapeHtml(getLabel('showPassword', 'Show password')) + '"></button>',
-                '</div>',
+                '<input class="dg-username-password-input" type="password" autocomplete="current-password" required aria-label="' + passwordLabel + '" placeholder="' + passwordLabel + '">',
                 '<div class="dg-username-login-actions">',
                 '<button type="button" class="button dg-username-login-back"><span class="dashicons dashicons-arrow-left-alt" aria-hidden="true"></span><span>' + escapeHtml(backLabel) + '</span></button>',
                 '<button type="submit" class="digits-form_button digits-form_submit digits-form_submit-btn dg-username-login-submit"><span>' + escapeHtml(loginLabel) + '</span></button>',
@@ -1526,7 +1521,7 @@
                 '</div>'
             ].join('');
             wrapper.appendChild(step);
-            bindPasswordToggle();
+            mountPasswordField(step.querySelector('.dg-username-password-input'));
 
             step.querySelector('.dg-username-login-actions').appendChild(createPasswordlessAction('dg-identity-passwordless-caption', function () {
                 authRecovery = true;
@@ -1579,14 +1574,6 @@
             delete form.dataset.dgUsernameStep;
             showDigitsIdentityContainer(form);
             return false;
-        }
-
-        if (!password || !cleanText(password.value, '')) {
-            showDigitsInlineMessage(form, getLabel('requiredPassword', 'رمز عبور را وارد کنید.'), 'warning');
-            if (password) {
-                password.focus({ preventScroll: true });
-            }
-            return true;
         }
 
         var coreForm = document.createElement('form');
@@ -2474,13 +2461,19 @@
             }
         }
 
+        var password = form.matches('form.digloginpage') ? visibleDigitsPassword(form) : null;
+        if ((form.dataset.dgUsernameStep === 'password' || password?.required) && !validateSignInPassword(password, form)) {
+            clearLoading();
+            return;
+        }
+
         if (typeof form.checkValidity === 'function' && !form.checkValidity()) {
+            form.reportValidity?.();
             clearLoading();
             return;
         }
 
         if (maybeHandleDigitsUsernameSubmit(form)) {
-            clearLoading();
             return;
         }
 
@@ -2525,26 +2518,10 @@
                 return;
             }
 
-            var value = digitsIdentityValue(form);
-            var identityType = classifyIdentity(value);
-            var isUsernameFlow = !form.dataset.dgSmsIdentity && (form.dataset.dgUsernameStep === 'password'
-                || (form.classList.contains('digits_form_index_section') && (identityType === 'username' || identityType === 'email')));
-
             event.preventDefault();
             event.stopPropagation();
             if (typeof event.stopImmediatePropagation === 'function') {
                 event.stopImmediatePropagation();
-            }
-
-            if (typeof form.checkValidity === 'function' && !form.checkValidity()) {
-                form.reportValidity();
-                clearLoading();
-                return;
-            }
-
-            if (isUsernameFlow) {
-                maybeHandleDigitsUsernameSubmit(form);
-                return;
             }
 
             submitDigitsSecureForm(form);
@@ -3255,7 +3232,7 @@
         if (form && username) {
             enhanceIdentityField(username);
         }
-        bindPasswordToggle();
+        observePasswordFields();
         bindDigitsAutoIdentity();
 
         if (!form || !username || !password) {
@@ -3273,10 +3250,8 @@
                 return;
             }
 
-            if (!String(password.value || '').trim()) {
+            if (!validateSignInPassword(password)) {
                 event.preventDefault();
-                showToast(getLabel('requiredPassword', 'رمز عبور را وارد کنید.'), 'warning');
-                password.focus();
                 return;
             }
 
@@ -3284,6 +3259,18 @@
                 showToast(getLabel('recaptchaUnavailable', 'محافظت ورود هنوز کامل بارگذاری نشده است. چند لحظه دیگر دوباره تلاش کنید.'), 'warning');
             }
         });
+    }
+
+    function validateSignInPassword(input, form) {
+        if (input?.value.trim()) { return true; }
+        var message = getLabel('requiredPassword', 'Enter your password.');
+        if (form) {
+            showDigitsInlineMessage(form, message, 'warning');
+        } else {
+            showToast(message, 'warning');
+        }
+        input?.focus({ preventScroll: true });
+        return false;
     }
 
     function bindErrorHandling() {
@@ -3981,11 +3968,10 @@
             document.querySelectorAll(selector).forEach(function (node) { putAuthIcon(node, selectors[selector]); });
         });
         document.querySelectorAll('.dg-digits-login-shell, .dg-digits-register-shell').forEach(function (shell) {
-            shell.querySelectorAll('input:is([name="digits_phone"],[name="digits_email"],[name="phone"],[name="password"],.dg-username-password-input)').forEach(function (input) {
+            shell.querySelectorAll('input[name="phone"]').forEach(function (input) {
                 var holder = input.closest('.digits-form_input') || input.parentElement;
-                if (input.matches('.dg-username-password-input, [name="digits_phone"], [name="digits_email"]')) { return; }
                 holder.classList.add('dg-auth-input-icon');
-                putAuthIcon(holder, input.matches('[name="password"],.dg-username-password-input') ? 'lock' : (input.name === 'phone' ? 'phone' : 'user'));
+                putAuthIcon(holder, 'phone');
             });
         });
         document.querySelectorAll('#digits_google_login').forEach(function (button) {
