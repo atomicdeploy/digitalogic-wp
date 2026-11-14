@@ -436,6 +436,61 @@ final class MobileCatalogController {
 	}
 
 	/**
+	 * Project only currently available public prices, without changing saved prices.
+	 *
+	 * @param mixed $product Canonical Woo product.
+	 * @param int   $minor Canonical currency precision.
+	 * @return array Public amount fields; absent offers remain empty.
+	 */
+	public function publicPriceAmounts( $product, int $minor ): array {
+		$empty = array(
+			'price'         => '',
+			'regular_price' => '',
+			'sale_price'    => '',
+			'price_range'   => null,
+		);
+		if ( ! $product->is_in_stock() ) {
+			return $empty;
+		}
+		if ( ! $product->is_type( 'variable' ) && ( '' === $product->get_price() || ! is_numeric( $product->get_price() ) ) ) {
+			return $empty;
+		}
+		$offer = $product;
+		$range = null;
+		if ( $product->is_type( 'variable' ) ) {
+			$offer   = null;
+			$amounts = array();
+			foreach ( $product->get_children() as $id ) {
+				$child = wc_get_product( $id );
+				if ( ! $child || ! $child->is_type( 'variation' ) || (int) $child->get_parent_id() !== (int) $product->get_id() || ! $this->isPublic( $child ) || ! $child->is_in_stock() ) {
+					continue;
+				}
+				$price = $child->get_price();
+				if ( '' === $price || ! is_numeric( $price ) || ! is_finite( (float) $price ) || (float) $price < 0 ) {
+					continue;
+				}
+				$amounts[] = (float) $price;
+				if ( null === $offer || (float) $price < (float) $offer->get_price() ) {
+					$offer = $child;
+				}
+			}
+			if ( null === $offer ) {
+				return $empty;
+			}
+			$range = array(
+				'min_amount' => self::minorUnits( min( $amounts ), $minor ),
+				'max_amount' => self::minorUnits( max( $amounts ), $minor ),
+			);
+		}
+		return array(
+			'price'         => self::minorUnits( $offer->get_price(), $minor ),
+			'regular_price' => self::minorUnits( $offer->get_regular_price(), $minor ),
+			'sale_price'    => $offer->is_on_sale() ? ( self::minorUnits( $offer->get_sale_price(), $minor ) ?? '' ) : '',
+			'price_range'   => $range,
+		);
+	}
+
+	/**
 	 * Project canonical Woo product fields without private or inferred commerce information.
 	 *
 	 * @param mixed $product Product.
@@ -444,6 +499,7 @@ final class MobileCatalogController {
 	 */
 	private function project( $product, bool $details ): array {
 		$minor      = (int) wc_get_price_decimals();
+		$amounts    = $this->publicPriceAmounts( $product, $minor );
 		$image_ids  = array_values( array_unique( array_filter( array_merge( array( $product->get_image_id() ), $details ? $product->get_gallery_image_ids() : array() ) ) ) );
 		$attributes = array();
 		foreach ( $product->get_attributes() as $attribute ) {
@@ -470,10 +526,7 @@ final class MobileCatalogController {
 			'permalink'         => $product->get_permalink(),
 			'short_description' => wp_kses_post( strip_shortcodes( $product->get_short_description() ) ),
 			'description'       => $details ? wp_kses_post( strip_shortcodes( $product->get_description() ) ) : '',
-			'prices'            => array(
-				'price'               => self::minorUnits( $product->get_price(), $minor ),
-				'regular_price'       => self::minorUnits( $product->get_regular_price(), $minor ),
-				'sale_price'          => self::minorUnits( $product->get_sale_price(), $minor ),
+			'prices'            => $amounts + array(
 				'currency_code'       => get_woocommerce_currency(),
 				'currency_minor_unit' => $minor,
 				'currency_symbol'     => html_entity_decode( get_woocommerce_currency_symbol(), ENT_QUOTES, 'UTF-8' ),
@@ -482,7 +535,7 @@ final class MobileCatalogController {
 			'stock_status'      => $product->get_stock_status(),
 			'stock_quantity'    => $product->get_stock_quantity(),
 			'is_purchasable'    => $product->is_purchasable(),
-			'on_sale'           => $product->is_on_sale(),
+			'on_sale'           => '' !== $amounts['sale_price'],
 			'sold_individually' => $product->is_sold_individually(),
 			'images'            => array_map( fn( $id ) => $this->image( (int) $id ), $image_ids ),
 			'attributes'        => $attributes,
@@ -498,7 +551,7 @@ final class MobileCatalogController {
 			'variation_count'   => $this->variationCount( $product ),
 			'average_rating'    => $product->get_average_rating(),
 			'review_count'      => $product->get_review_count(),
-			'modified_at'       => $product->get_date_modified() ? $product->get_date_modified()->date( 'c' ) : null,
+			'modified_at'       => $product->is_in_stock() && $product->get_date_modified() ? $product->get_date_modified()->date( 'c' ) : null,
 		);
 		if ( $details && $product->is_type( 'variable' ) ) {
 			foreach ( array_slice( $product->get_children(), 0, 100 ) as $child_id ) {
@@ -511,7 +564,7 @@ final class MobileCatalogController {
 					'sku'            => $child->get_sku(),
 					'name'           => self::displayName( $child->get_name(), $child->get_sku() ),
 					'attributes'     => $child->get_variation_attributes(),
-					'price'          => self::minorUnits( $child->get_price(), $minor ),
+					'price'          => $child->is_in_stock() ? self::minorUnits( $child->get_price(), $minor ) : '',
 					'is_in_stock'    => $child->is_in_stock(),
 					'is_purchasable' => $child->is_purchasable(),
 					'stock_quantity' => $child->get_stock_quantity(),
@@ -555,7 +608,7 @@ final class MobileCatalogController {
 	private function cached( Request $request, string $route, array $query, callable $build ): Response {
 		$generation = class_exists( 'Digitalogic_Report_Engine' ) ? \Digitalogic_Report_Engine::instance()->current_projection_generation() : '';
 		$generation = is_wp_error( $generation ) ? '' : $generation;
-		$key        = 'catalog-' . md5( wp_json_encode( array( $route, $query, $generation, get_woocommerce_currency(), get_option( 'digitalogic_mobile_merchandising', array() ), get_option( 'digitalogic_mobile_update_manifest', '' ), get_option( 'digitalogic_mobile_native_auth', false ), get_option( 'digitalogic_mobile_google_android_client', '' ), get_option( 'digitalogic_mobile_websocket', false ), get_option( 'digitalogic_mobile_forms', false ), get_option( 'digitalogic_mobile_cloud_cart', false ), get_option( 'digitalogic_mobile_native_checkout', false ), get_option( 'digitalogic_mobile_registration_schema' ), get_option( 'digitalogic_mobile_woo_favorites' ), 'identity-10' ) ) );
+		$key        = 'catalog-' . md5( wp_json_encode( array( $route, $query, $generation, get_woocommerce_currency(), get_option( 'digitalogic_mobile_merchandising', array() ), get_option( 'digitalogic_mobile_update_manifest', '' ), get_option( 'digitalogic_mobile_native_auth', false ), get_option( 'digitalogic_mobile_google_android_client', '' ), get_option( 'digitalogic_mobile_websocket', false ), get_option( 'digitalogic_mobile_forms', false ), get_option( 'digitalogic_mobile_cloud_cart', false ), get_option( 'digitalogic_mobile_native_checkout', false ), get_option( 'digitalogic_mobile_registration_schema' ), get_option( 'digitalogic_mobile_woo_favorites' ), 'availability-11' ) ) );
 		$private    = get_current_user_id() > 0;
 		$data       = $private ? false : wp_cache_get( $key, 'digitalogic-mobile' );
 		$hit        = is_array( $data );

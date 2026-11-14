@@ -1,22 +1,28 @@
 {
-  "observed_at_utc": "2026-11-06T00:40:18.807539+00:00",
+  "observed_at_utc": "2026-11-14T04:12:13.904140+00:00",
   "source_branch": "feat/mobile-storefront-api",
   "deployment": "targeted files; no full-plugin replacement",
   "schemas": {
     "identity": "2; OTP resolution and verified_at columns installed",
     "google_challenge": "1",
-    "message_operations": "1"
+    "message_operations": "1",
+    "merge": "1",
+    "google_login_challenge": "1",
+    "google_continuation": "1"
   },
   "capabilities": {
     "google_reauth_nonce": true,
     "native_phone_verification": true,
     "native_messages": false,
-    "account_merge": false
+    "account_merge": true
   },
   "public_unauthenticated_checks": {
     "GET /app-api/account/phone/eligibility": 401,
     "GET /app-api/account/phone/resolution": 401,
-    "POST /app-api/account/reauth/google/challenge": 401
+    "POST /app-api/account/reauth/google/challenge": 401,
+    "GET /app-api/account/merge/plan": 401,
+    "GET /app-api/checkout": 401,
+    "GET /app-api/account/orders": 401
   },
   "files": {
     "laravel/app/Services/MobileGoogleChallenge.php": {
@@ -24,27 +30,27 @@
       "matches_working_source": true
     },
     "laravel/app/Services/MobilePhoneResolution.php": {
-      "deployed_sha256": "4f0a02c0a6f28b32c625eb8e86407ef11b74b4a1d55b2848e6fe97d88a198a4b",
+      "deployed_sha256": "5bd07eb6c470698501f3a9a1873cddcde56e32c5a5ece27d44635105a1d63a0c",
       "matches_working_source": true
     },
     "laravel/app/Services/MobileIdentityStore.php": {
-      "deployed_sha256": "6bd6e1dd4b9ac5be8439f342f697cc3642f57f154f2fd1d4a95a0745654b639c",
+      "deployed_sha256": "0f3db57d7ddbdb911af637f094e8c3fceee146f79a18235a27c6ee57838923af",
       "matches_working_source": true
     },
     "laravel/app/Http/Controllers/MobileIdentityController.php": {
-      "deployed_sha256": "270c98723dd88d5fe9e44f4920d45b5b0c2fe3badbace50585b080be058b4775",
+      "deployed_sha256": "bd3021ff741a70425196ed308c00e7e93ee75b569fe472898cf485a8b88b7387",
       "matches_working_source": true
     },
     "laravel/app/Http/Controllers/MobileCatalogController.php": {
-      "deployed_sha256": "906be642be0983413c3f6059b857273e7a2aea5553a55b9a36427b5bd98977a5",
+      "deployed_sha256": "7c2adc31b8cbb2bb86cf742ae3bde263cf51866d93d4d62858bed6c0cd280bee",
       "matches_working_source": true
     },
     "laravel/routes/internal.php": {
-      "deployed_sha256": "bec100708a3ef1a610ccffc4b46cf7f77b9675a912add2538585803b15d0bf50",
+      "deployed_sha256": "ffc9383b54fc25378683504e94d6c28b0bb8dac58c0ee2a5b63168175fb6b7a8",
       "matches_working_source": true
     },
     "includes/integrations/class-digitalogic-mobile-api.php": {
-      "deployed_sha256": "3fcbf3ac9ccc785211b527e023d12944a155d7ed13a9ea43f9b92e9986a18867",
+      "deployed_sha256": "e15135e3a4898768270ace1784aac10e9f973d9a23e18939096cd424743ed412",
       "matches_working_source": true
     },
     "laravel/app/Services/MobileMessages.php": {
@@ -62,12 +68,109 @@
     "includes/websocket/class-websocket-server.php": {
       "deployed_sha256": "608ef4272087703acbcf8aba133ce240f32ea4750055ed62e41552075232535b",
       "matches_working_source": false
+    },
+    "includes/api/class-webhooks.php": {
+      "deployed_sha256": "4b98091b8ce2573f27f7bba610d75a8f1d3f2c98d3b21221511cd7c92e779ee6",
+      "matches_working_source": true
+    },
+    "includes/integrations/admin-suite/class-webhooks.php": {
+      "deployed_sha256": "c06a8b8d60ea44c925332fce72eb08d11d9029682b2eeac1267564a50a740d4a",
+      "matches_working_source": true
+    },
+    "includes/integrations/viewer-bridge/class-events.php": {
+      "deployed_sha256": "5699ac2f9c2e4d87cf1643f9957cdea0c0be37bb63f30fe839c3735a5872c14b",
+      "matches_working_source": true
+    },
+    "includes/panel/class-panel.php": {
+      "deployed_sha256": "01549c923b6b4a495cdaed27f04baf83cd92df0e40a520bccd01da49a4dbc88f",
+      "matches_working_source": true
+    },
+    "laravel/app/Http/Controllers/MobileMergeController.php": {
+      "deployed_sha256": "86c58989f59585635d159c40e2b0e4bcc4716453cb3c2a73d52e217a9052544e",
+      "matches_working_source": true
+    },
+    "laravel/app/Services/MobileAccountMerge.php": {
+      "deployed_sha256": "0a233201427754171c9fb2a1d336f965aaf25f4f405a2984435bf7fc4359d80f",
+      "matches_working_source": true
+    },
+    "laravel/app/Services/MobileGoogleContinuation.php": {
+      "deployed_sha256": "d2acf6d120de5fccadcd164ee5fb894ca6de88a413d8c0a91840a42e2ea28697",
+      "matches_working_source": true
+    },
+    "laravel/app/Services/MobileGoogleIdentity.php": {
+      "deployed_sha256": "b889f2eeb99f6e68a4fa07af2bbc65a3d2d908682e4125fc7db50a548919899e",
+      "matches_working_source": true
+    },
+    "laravel/app/Services/MobileGoogleLoginChallenge.php": {
+      "deployed_sha256": "061f26e2321c9f17243eca0d08f428f2a2b5e46811f8897955136b1285e3d29d",
+      "matches_working_source": true
+    },
+    "laravel/app/Services/MobileIdentityResolver.php": {
+      "deployed_sha256": "b5f2742a63d3bf783abf3da2d9902c4300692a903aae4068eafb2fb14472aa3b",
+      "matches_working_source": true
+    },
+    "laravel/app/Services/MobileMergeEffects.php": {
+      "deployed_sha256": "f168499de0171e8476483b7043ff2b5e18d5ac6c926db6fc7908dd9deb9f6f47",
+      "matches_working_source": true
+    },
+    "laravel/app/Services/MobileMergeObjectCache.php": {
+      "deployed_sha256": "bc14c5bb33a781b5338dc27543940c045f7b71db822025323cef6bcf61942c7e",
+      "matches_working_source": true
+    },
+    "laravel/app/Services/MobileMergeOperation.php": {
+      "deployed_sha256": "9891e4d23aea277ce9b7a338a51319e718afb8d5f09d1d7ed05a155cb5a3643b",
+      "matches_working_source": true
+    },
+    "laravel/app/Services/MobileRegistrationStore.php": {
+      "deployed_sha256": "89eddc1de02a1ac1c6e1743770c82b651d0a311655a7f236148ec20a2475c5ee",
+      "matches_working_source": true
+    },
+    "laravel/app/Services/MobileWebsiteIdentityGuard.php": {
+      "deployed_sha256": "b9ec7f8cb086f7ae62ea854c99eb2c9866718b070dbb655d68b060458903d052",
+      "matches_working_source": true
+    },
+    "laravel/app/Http/Controllers/MobileCheckoutController.php": {
+      "deployed_sha256": "5180b04c4fec1b8896613ede5e2bf8b0cba0d92ef893f940d33313bdb8268a5a",
+      "matches_working_source": true
+    },
+    "laravel/app/Services/MobileWooCheckout.php": {
+      "deployed_sha256": "1a6e2fa32bd07e8e49861dd69a8f15b1b2b54d7c1ac794eb1617add187419a68",
+      "matches_working_source": true
+    },
+    "laravel/app/Services/MobileOrderPayment.php": {
+      "deployed_sha256": "0c547b35ff0e67371db21f9d1182a459e6a53230f642f3a904c697a9ab508607",
+      "matches_working_source": true
     }
   },
   "notes": [
-    "Fluent adapter source is gated off; no real ticket or message was created in acceptance probes.",
-    "WebSocket support-event/event_id delta is source-only; running service was not replaced at this checkpoint.",
-    "Formatting/parameterized-SQL cleanup in other native cart/checkout/request files remains a separate targeted deployment lane.",
-    "No account merge, role transfer, identity reassignment or order was performed."
-  ]
+    "Targeted file replacements preserve unrelated current website authentication and catalog patches.",
+    "Account consolidation is enabled for the reviewed preservation pattern; deployment itself changes no customer identity.",
+    "Fluent native messaging remains gated; the earlier support-event/event_id service delta is not claimed deployed by this checkpoint.",
+    "No real customer order, OTP, payment, mail or dispatch was performed by these rollout checks.",
+    "The first local full test run exhausted the default128MiB during a large inherited pricing fixture; the complete suite passed with512MiB test-process memory."
+  ],
+  "checkout_review": {
+    "archive_sha256": "b64c981fbee168f7364c71ecda6ca631c2c34a62dcdde00d8d4350e866c2f404",
+    "backup": "/var/backups/digitalogic-checkout-review.tvx0kq21",
+    "unit_tests": 1219,
+    "assertions": 10816,
+    "platform_skips": 35,
+    "live_canaries": {
+      "unavailable_price_and_date_suppressed": [
+        14772,
+        10699
+      ],
+      "available_price_preserved": [
+        14639
+      ],
+      "variable_count": {
+        "14382": 2
+      },
+      "esp_search_unavailable": 6,
+      "esp_search_price_or_date_leaks": 0
+    },
+    "saved_price_provenance_hashes_unchanged": true,
+    "real_customer_order_verified": false,
+    "isolated_checkout_acceptance": "in_progress"
+  }
 }

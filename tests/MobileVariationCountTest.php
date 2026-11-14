@@ -80,5 +80,41 @@ namespace {
 			self::assertSame(0, (new MobileCatalogController())->variationCount($parent));
 			self::assertNull((new MobileCatalogController())->variationCount(new Digitalogic_VariationCount_Fixture(5, 'simple')));
 		}
+		private function priced(int $id, string $type = 'variation', bool $stock = true, string $price = '200', array $children = [], string $status = 'publish'): object {
+			return new class($id, $type, $stock, $price, $children, $status) {
+				public string $password = '';
+				public function __construct(private int $id, private string $type, private bool $stock, private string $price, private array $children, private string $status) {}
+				public function get_id(): int { return $this->id; }
+				public function get_parent_id(): int { return 9000; }
+				public function is_type($type): bool { return $type === $this->type; }
+				public function is_in_stock(): bool { return $this->stock; }
+				public function get_status(): string { return $this->status; }
+				public function get_catalog_visibility(): string { return 'visible'; }
+				public function get_children(): array { return $this->children; }
+				public function get_price(): string {
+					if (!$this->stock) throw new LogicException('Unavailable saved prices must not be read for public display.');
+					return $this->price;
+				}
+				public function get_regular_price(): string { return $this->get_price(); }
+				public function get_sale_price(): string { return ''; }
+				public function is_on_sale(): bool { return false; }
+			};
+		}
+		public function test_unavailable_simple_or_variation_never_projects_saved_amounts(): void {
+			$expected = ['price'=>'','regular_price'=>'','sale_price'=>'','price_range'=>null];
+			foreach (['simple','variation','variable'] as $type) {
+				self::assertSame($expected,(new MobileCatalogController())->publicPriceAmounts($this->priced(1,$type,false,'25'),0));
+			}
+		}
+		public function test_mixed_parent_uses_only_available_public_child_prices(): void {
+			$parent=$this->priced(9000,'variable',true,'5',[1,2,3,4]);
+			$GLOBALS['variation_count_fixture']=[9000=>$parent,1=>$this->priced(1,'variation',false,'5'),2=>$this->priced(2,'variation',true,'200'),3=>$this->priced(3,'variation',true,'300'),4=>$this->priced(4,'variation',true,'1',[],'private')];
+			self::assertSame(['price'=>'200','regular_price'=>'200','sale_price'=>'','price_range'=>['min_amount'=>'200','max_amount'=>'300']],(new MobileCatalogController())->publicPriceAmounts($parent,0));
+		}
+		public function test_available_missing_price_stays_absent_and_real_zero_is_preserved(): void {
+			$controller=new MobileCatalogController();
+			self::assertSame('',$controller->publicPriceAmounts($this->priced(1,'simple',true,''),2)['price']);
+			self::assertSame('000',$controller->publicPriceAmounts($this->priced(1,'simple',true,'0'),2)['price']);
+		}
 	}
 }
