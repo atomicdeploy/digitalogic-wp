@@ -6,6 +6,7 @@ const { chromium } = require('playwright-core');
 
 const branding = path.join(__dirname, '..', 'assets', 'js', 'branding', 'admin-branding.js');
 const styles = path.join(__dirname, '..', 'assets', 'css', 'branding', 'admin-branding.css');
+const phoneLibrary = path.join(__dirname, '..', 'assets', 'vendor', 'libphonenumber-js', 'libphonenumber-max.js');
 
 async function checkAction(page, labels, direction) {
     const action = page.locator('.dg-passwordless-action:visible');
@@ -56,7 +57,12 @@ async function render(page, direction, labels, native, search = '') {
                 <div class="digits-form_heading"></div>
                 <div class="digits-form_tab_wrapper">
                   <div class="digits-form_tab_container" ${native ? 'hidden' : ''}>
-                    <div class="digits-form_tab_body digits-tab_active"><input name="digits_phone"></div>
+                    <div class="digits-form_tab_body digits-tab_active">
+                      <div class="digits-mobile_wrapper">
+                        <div class="digits-form_countrycode"><input name="login_digt_countrycode" value="+98"></div>
+                        <input name="digits_phone">
+                      </div>
+                    </div>
                     <div class="digits-form_tab_body"><input name="digits_email"></div>
                   </div>
                   ${native ? `<div class="digits-form_tab_container">
@@ -90,8 +96,38 @@ async function render(page, direction, labels, native, search = '') {
         body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path fill="blue" d="M0 0h32v32H0z"/></svg>'
     }));
     await page.addStyleTag({ path: styles });
+    await page.addScriptTag({ path: phoneLibrary });
     await page.addScriptTag({ path: branding });
     await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
+}
+
+async function checkVerificationLabels(page, labels) {
+    const phone = page.locator('input[name="digits_phone"]');
+    const email = page.locator('input[name="digits_email"]');
+    const primary = page.locator('.digits-form_login > .digits-form_submit-btn');
+    for (const [field, value, expected] of [
+        [phone, '', 'Continue'],
+        [phone, 'sample-user', 'Continue'],
+        [phone, '۰۹۱۲', 'Continue'],
+        [phone, '۰۹۱۲۰۰۰۰۰۰۰', labels.sendSmsCode],
+        [phone, '۰۲۱۱۲۳۴۵۶۷۸', 'Continue'],
+        [phone, '+442079460018', 'Continue'],
+        [phone, '+12025550123', 'Continue'],
+        [phone, '+448001111', 'Continue'],
+        [phone, '+989120000000', labels.sendSmsCode],
+        [phone, 'demo@', 'Continue'],
+        [email, 'demo@example.com', labels.sendEmailCode],
+        [email, 'demo', 'Continue'],
+        [phone, '', 'Continue']
+    ]) {
+        await field.fill(value);
+        assert.equal(await primary.innerText(), expected, value || '(empty identity)');
+    }
+    await phone.fill('09120000000');
+    assert.equal(await primary.innerText(), labels.sendSmsCode);
+    await page.locator('.dg-country-trigger').click();
+    await page.locator('.dg-country-option[data-code="+1"]').click();
+    assert.equal(await primary.innerText(), 'Continue', 'The previous SMS label must clear on country changes');
 }
 
 async function checkAlternatives(page, visible) {
@@ -124,7 +160,12 @@ async function checkOtpEditor(page, channel) {
             ['rtl', 390, 'ورود بدون رمز عبور', 'فراموشی رمز عبور'],
             ['ltr', 1024, 'Sign in without a password', 'Forgot your password?']
         ]) {
-            const labels = { skipPassword, skipPasswordCaption, passkeyLogin: direction === 'rtl' ? 'ورود با کلید عبور' : 'Sign in with a passkey' };
+            const labels = {
+                skipPassword, skipPasswordCaption,
+                passkeyLogin: direction === 'rtl' ? 'ورود با کلید عبور' : 'Sign in with a passkey',
+                sendSmsCode: direction === 'rtl' ? 'ارسال کد پیامکی' : 'Send SMS code',
+                sendEmailCode: direction === 'rtl' ? 'ارسال کد به ایمیل' : 'Send email code'
+            };
             for (const native of [true, false]) {
                 const page = await browser.newPage({ viewport: { width, height: 800 } });
                 await render(page, direction, labels, native);
@@ -185,7 +226,7 @@ async function checkOtpEditor(page, channel) {
                 } else {
                     assert.equal(await page.locator('form').getAttribute('data-dg-sms-identity'), 'true');
                     assert.equal(await page.locator('input[name="digits_phone"]').evaluate(element => document.activeElement === element), true);
-                    assert.equal(await page.getByRole('button', { name: 'Send SMS code', exact: true }).isVisible(), true);
+                    await checkVerificationLabels(page, labels);
                     await page.locator('.dg-auth-back').click();
                     await checkAlternatives(page, true);
                     assert.equal(await page.locator('.dg-auth-back').isVisible(), false);
