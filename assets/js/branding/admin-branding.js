@@ -106,7 +106,6 @@
         '.dig_notice_message',
         '.dig_popmessage',
         '.dig_ma-box',
-        '.dg-digits-inline-message',
         '.woocommerce-error',
         '.woocommerce-message'
     ].join(',');
@@ -319,6 +318,10 @@
             if (!node) {
                 return;
             }
+
+            if (document.body.classList.contains('login') && node.closest(
+                '#login, .dig_popmessage, .dig_error_message, .dig_notice_message, .dig_ma-box'
+            )) { return; }
 
             var text = cleanText(node.textContent, '');
             if (!text || seen.has(text)) {
@@ -1034,16 +1037,16 @@
     function scheduleLoadingFailSafe() {
         window.clearTimeout(loadingFailSafeTimer);
         loadingFailSafeTimer = window.setTimeout(function () {
-            if (!document.querySelector('[data-dg-loading="true"]')) {
+            var button = document.querySelector('[data-dg-loading="true"]');
+            if (!button) {
                 return;
             }
 
             clearLoading();
-            showLoginFailureMessage(
-                document.querySelector('.dg-digits-login-shell form, .dg-digits-register-shell form'),
-                getLabel('requestTimeout', 'پاسخی از سرور دریافت نشد. اتصال یا افزونه ورود به‌موقع پاسخ نداد؛ دوباره تلاش کنید.'),
-                'error'
-            );
+            var message = digitsRequestFailure(null, 'timeout');
+            var form = button.closest('form');
+            if (form) { showDigitsInlineMessage(form, message, 'error'); }
+            else { showToast(message, 'error'); }
         }, 35000);
     }
 
@@ -1115,17 +1118,6 @@
         return fallback;
     }
 
-    function showLoginFailureMessage(form, message, tone) {
-        form = form || document.querySelector('.dg-digits-login-shell form, .dg-digits-register-shell form');
-
-        if (form) {
-            showDigitsInlineMessage(form, message, tone || 'error');
-            return;
-        }
-
-        showToast(message, tone || 'error');
-    }
-
     function showDigitsInlineMessage(form, message, tone) {
         message = cleanText(message, '');
 
@@ -1133,6 +1125,8 @@
             return;
         }
 
+        var otp = form && visibleDigitsOtpInput(form);
+        var otpRow = otp?.closest('.digits-form_input_row') || otp?.parentElement;
         var host = form && (form.querySelector('.digits-form_heading') || form.firstElementChild);
         var box = form && form.querySelector('.dg-digits-inline-message');
 
@@ -1141,20 +1135,90 @@
             box.className = 'dg-digits-inline-message';
             box.setAttribute('role', 'alert');
 
-            if (host && host.parentNode) {
+            if (!otpRow && host && host.parentNode) {
                 host.parentNode.insertBefore(box, host.nextSibling);
-            } else {
+            } else if (!otpRow) {
                 form.prepend(box);
             }
         }
 
         if (box) {
+            if (otpRow && box.previousElementSibling !== otpRow) { otpRow.after(box); }
+            box.classList.toggle('dg-otp-feedback', !!otpRow);
             box.classList.toggle('dg-digits-inline-message--error', tone !== 'success');
             box.classList.toggle('dg-digits-inline-message--success', tone === 'success');
             box.textContent = message;
         }
+    }
 
-        showToast(message, tone === 'success' ? 'success' : 'error');
+    function authRequestLabel(english, persian) {
+        return isPersianLocale() ? persian : english;
+    }
+
+    function digitsRequestFailure(request, state) {
+        var status = Number(request?.status) || 0;
+        if (state === 'timeout' || status === 408 || status === 504) {
+            return authRequestLabel('The sign-in service took too long to respond. Try again.', 'سرویس ورود به‌موقع پاسخ نداد. دوباره تلاش کنید.');
+        }
+        if (navigator.onLine === false) {
+            return authRequestLabel('You’re offline. Reconnect to the internet and try again.', 'اینترنت قطع است. اتصال را برقرار کنید و دوباره تلاش کنید.');
+        }
+        if (status === 429) {
+            return authRequestLabel('Too many attempts. Wait a few minutes before trying again.', 'تعداد تلاش‌ها بیش از حد مجاز است. چند دقیقه صبر کنید و دوباره تلاش کنید.');
+        }
+        if (status === 401 || status === 403) {
+            return authRequestLabel('The sign-in request was refused (HTTP ' + status + '). Reload this page to start a fresh session.',
+                'سرور درخواست ورود را نپذیرفت (HTTP ' + status + '). برای شروع نشست تازه، صفحه را دوباره بارگذاری کنید.');
+        }
+        if (status >= 400) {
+            return authRequestLabel('The sign-in service returned HTTP ' + status + '. Try again in a moment.',
+                'سرویس ورود با وضعیت HTTP ' + status + ' پاسخ داد. کمی بعد دوباره تلاش کنید.');
+        }
+        if (state === 'parsererror' || state === 'malformed') {
+            return authRequestLabel('The sign-in service returned an unreadable response. Reload and try again.',
+                'پاسخ سرویس ورود قابل پردازش نبود. صفحه را دوباره بارگذاری کنید و تلاش کنید.');
+        }
+        if (state === 'callback') {
+            return authRequestLabel('The browser received the sign-in response but could not open the next step. Reload and try again.',
+                'پاسخ ورود دریافت شد، اما مرورگر نتوانست مرحلهٔ بعد را باز کند. صفحه را دوباره بارگذاری کنید و تلاش کنید.');
+        }
+        return authRequestLabel('The browser could not reach the sign-in service. Check your connection and try again.',
+            'مرورگر نتوانست به سرویس ورود وصل شود. اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.');
+    }
+
+    function digitsResponseFailure(form, payload, verifiesCode, sendsCode) {
+        var detail = responseMessage(payload, '');
+        if (!detail || /^(?:error|failed|undefined|null|false|خطا)[.!\s]*$/i.test(detail)
+            || detail === window.dig_script?.ErrorPleasetryagainlater) {
+            detail = verifiesCode
+                ? authRequestLabel('The service did not confirm this code. Check the digits or request a new code.',
+                    'سرویس ورود این کد را تأیید نکرد. رقم‌ها را بررسی کنید یا کد تازه بگیرید.')
+                : sendsCode
+                    ? authRequestLabel('The service did not send a verification code. Wait a moment and request it again.',
+                        'سرویس ورود کد تأیید را ارسال نکرد. کمی صبر کنید و دوباره کد بگیرید.')
+                    : authRequestLabel('The service did not complete this sign-in step. Check the details you entered and try again.',
+                        'سرویس ورود این مرحله را تکمیل نکرد. اطلاعات واردشده را بررسی کنید و دوباره تلاش کنید.');
+        }
+        if (verifiesCode && !payload?.data?.notice) {
+            digitsOtpEditors.get(visibleDigitsOtpInput(form))?.reject();
+        }
+        showDigitsInlineMessage(form, detail, payload?.data?.notice ? 'warning' : 'error');
+    }
+
+    function withoutDigitsToast(callback, context, args) {
+        if (typeof callback !== 'function') { return; }
+        // The provider callbacks also release its loading and captcha state. Keep those side effects.
+        var names = ['showDigErrorMessage', 'showDigNoticeMessage'];
+        var previous = names.map(function (name) { return window[name]; });
+        names.forEach(function (name) { window[name] = function () {}; });
+        try {
+            return callback.apply(context, args);
+        } finally {
+            names.forEach(function (name, index) {
+                if (previous[index] === undefined) { delete window[name]; }
+                else { window[name] = previous[index]; }
+            });
+        }
     }
 
     function digitsIdentityValue(form) {
@@ -1730,20 +1794,16 @@
     function handleDigitsAjaxResult(form, payload) {
         var data = payload && payload.data !== undefined ? payload.data : payload;
 
-        if (payload && payload.success === false) {
+        if (!hasUsableDigitsPayload(payload)) {
             clearLoading();
-            if (continueToDigitsSignup(form, data)) { return; }
-            showDigitsInlineMessage(form, responseMessage(payload, getLabel('requestError', 'درخواست با خطا روبه‌رو شد. دوباره تلاش کنید.')), data && data.notice ? 'warning' : 'error');
+            showDigitsInlineMessage(form, digitsRequestFailure(null, 'malformed'), 'error');
             return;
         }
 
-        if (payload && payload.success === true && (!data || (typeof data === 'object' && !Object.keys(data).length))) {
+        if (payload && payload.success === false) {
             clearLoading();
-            showDigitsInlineMessage(
-                form,
-                getLabel('digitsEmptyResponse', 'افزونه ورود پاسخ ناقص فرستاد: درخواست موفق علامت خورد اما داده مرحله بعدی در پاسخ نبود. دوباره تلاش کنید.'),
-                'error'
-            );
+            if (continueToDigitsSignup(form, data)) { return; }
+            digitsResponseFailure(form, payload, !!visibleDigitsOtpInput(form)?.value, false);
             return;
         }
 
@@ -1762,6 +1822,8 @@
         }
 
         if (data && data.html && appendDigitsStep(form, data.html, data)) {
+            startDigitsResendTimer(form, data);
+            updateDigitsResend(form);
             clearLoading();
             bindDigitsAutoIdentity();
             return;
@@ -1795,38 +1857,21 @@
                 'X-Requested-With': 'XMLHttpRequest'
             }
         }).then(function (response) {
-            window.clearTimeout(timeout);
-            return response.text().then(function (text) {
-                var payload = null;
-
-                try {
-                    payload = JSON.parse(text);
-                } catch (error) {
-                    payload = {
-                        success: false,
-                        data: {
-                            message: text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-                        }
-                    };
-                }
-
-                if (!response.ok && payload && payload.success !== false) {
-                    payload.success = false;
-                }
-
+            if (!response.ok) {
+                clearLoading();
+                showDigitsInlineMessage(form, digitsRequestFailure(response), 'error');
+                return;
+            }
+            return response.json().then(function (payload) {
                 handleDigitsAjaxResult(form, payload);
+            }, function (error) {
+                clearLoading();
+                showDigitsInlineMessage(form, digitsRequestFailure(null, error?.name === 'AbortError' ? 'timeout' : 'malformed'), 'error');
             });
         }).catch(function (error) {
-            window.clearTimeout(timeout);
             clearLoading();
-            showDigitsInlineMessage(
-                form,
-                error && error.name === 'AbortError'
-                    ? getLabel('requestTimeout', 'پاسخی از سرور دریافت نشد. اتصال یا افزونه ورود به‌موقع پاسخ نداد؛ دوباره تلاش کنید.')
-                    : getLabel('requestError', 'درخواست ورود با خطای شبکه یا سرور روبه‌رو شد. دوباره تلاش کنید.'),
-                'error'
-            );
-        });
+            showDigitsInlineMessage(form, digitsRequestFailure(null, error?.name === 'AbortError' ? 'timeout' : ''), 'error');
+        }).finally(function () { window.clearTimeout(timeout); });
     }
 
     function isDigitsAjaxRequest(settings) {
@@ -1885,8 +1930,8 @@
     }
 
     function visibleDigitsOtpInput(form) {
-        return visibleDigitsSmsInput(form)
-            || Array.prototype.find.call(form.querySelectorAll('input[name="email_otp"]:not([type="hidden"])'), isVisibleElement);
+        return form && (visibleDigitsSmsInput(form)
+            || Array.prototype.find.call(form.querySelectorAll('input[name="email_otp"]:not([type="hidden"])'), isVisibleElement));
     }
 
     function otpDigits(value) {
@@ -1909,15 +1954,22 @@
         editor.style.setProperty('--dg-otp-count', String(count));
         editor.setAttribute('role', 'group');
         editor.setAttribute('aria-label', getLabel('otpCode', 'Verification code'));
-        var step = input.closest('.digits-form_tab_container');
-        if (step && !step.querySelector('.dg-otp-instructions')) {
-            var help = document.createElement('p');
+        var row = input.closest('.digits-form_input_row') || input.parentElement;
+        var step = input.closest('.digits-form_tab_body') || input.closest('.digits-form_tab_container');
+        var help = step && step.querySelector('.dg-otp-instructions');
+        if (step && !help) {
+            help = document.createElement('p');
             help.className = 'dg-otp-instructions';
-            help.textContent = input.name === 'email_otp'
+            var caption = document.createElement('span');
+            caption.textContent = input.name === 'email_otp'
                 ? getLabel('emailCodeInstructions', 'Enter the code sent to your email address.')
                 : getLabel('smsCodeInstructions', 'Enter the code sent to your phone.');
-            step.prepend(help);
+            putAuthIcon(help, 'info');
+            help.prepend(caption);
+            row.before(help);
         }
+        var info = row.querySelector('.digits-form_input_info');
+        if (help && info) { help.append(info); }
         var heading = input.form?.querySelector('.digits-form_heading');
         if (heading && !heading.querySelector('.dg-otp-heading')) {
             var title = document.createElement('span');
@@ -1966,12 +2018,13 @@
         function syncCode() {
             input.value = cells.every(function (cell) { return cell.value !== ''; })
                 ? cells.map(function (cell) { return cell.value; }).join('') : '';
+            if (editor.hasAttribute('aria-invalid')) { form?.querySelector('.dg-otp-feedback')?.remove(); }
             editor.removeAttribute('aria-invalid');
         }
 
         function focusDigit(index) {
             var cell = cells[Math.max(0, Math.min(index, count - 1))];
-            cell.focus();
+            cell.focus({ preventScroll: true });
             cell.select();
         }
 
@@ -1983,7 +2036,13 @@
             });
             syncCode();
             if (moveFocus && digits.length) {
-                focusDigit(start + digits.length);
+                if (digits.length >= count) {
+                    var submit = digitsSubmitButton(input.form);
+                    if (submit && !submit.disabled) { submit.focus({ preventScroll: true }); }
+                    else if (cells.includes(document.activeElement)) { document.activeElement.blur(); }
+                } else {
+                    focusDigit(start + digits.length);
+                }
             }
         }
 
@@ -2064,6 +2123,10 @@
             },
             focus: function () {
                 focusDigit(cells.findIndex(function (cell) { return !cell.value; }));
+            },
+            reject: function () {
+                editor.setAttribute('aria-invalid', 'true');
+                focusDigit(0);
             }
         });
         input.before(editor);
@@ -2161,14 +2224,23 @@
         return true;
     }
 
+    function startDigitsResendTimer(form, data) {
+        var seconds = Number(data?.resend_timer);
+        if (form && Number.isFinite(seconds) && seconds > 0) {
+            digitsResendTimers.set(form, { seconds: seconds, until: Date.now() + seconds * 1000 });
+        }
+    }
+
     function updateDigitsResend(form) {
         var timer = digitsResendTimers.get(form);
-        if (!timer || timer.button) {
+        if (!timer || !visibleDigitsOtpInput(form)) {
             return;
         }
 
-        var button = Array.prototype.find.call(form.querySelectorAll('.digits-form_resend_otp'), isVisibleElement);
-        if (!button) {
+        var button = Array.from(form.querySelectorAll('.digits-form_resend_otp')).find(function (item) {
+            return isVisibleElement(item) && !item.closest('.digits-form_footer_content');
+        });
+        if (!button || timer.button === button) {
             return;
         }
         timer.button = button;
@@ -2190,11 +2262,12 @@
         }
 
         function tick() {
-            if (!button.isConnected || digitsResendTimers.get(form) !== timer) {
+            if (!button.isConnected || timer.button !== button || digitsResendTimers.get(form) !== timer) {
                 return;
             }
             var remaining = Math.max(0, timer.until - Date.now());
-            button.style.setProperty('--dg-resend-progress', (100 * (1 - remaining / (timer.seconds * 1000))) + '%');
+            var progress = Math.min(100, Math.max(0, 100 * (1 - remaining / (timer.seconds * 1000))));
+            button.style.setProperty('--dg-resend-progress', progress + '%');
             button.setAttribute('aria-disabled', remaining > 0 ? 'true' : 'false');
             if (remaining > 0) {
                 window.setTimeout(tick, 100);
@@ -2306,6 +2379,7 @@
                     if (typeof beforeSend === 'function' && beforeSend.apply(this, arguments) === false) {
                         return false;
                     }
+                    if (brandedAuth) { requestForm.querySelector('.dg-digits-inline-message')?.remove(); }
                     if (sendsSms) {
                         var previousCode = visibleDigitsSmsInput(requestForm);
                         if (previousCode) {
@@ -2342,17 +2416,16 @@
                 };
 
                 guardedSettings.success = function (payload) {
-                    if (!hasUsableDigitsPayload(payload)) {
-                        clearLoading();
-                        showLoginFailureMessage(
-                            null,
-                            getLabel('digitsMalformedAjax', 'خطای افزونه Digits: پاسخ AJAX مرحله ورود بدون داده معتبر برگشت، بنابراین callback افزونه اجرا نشد تا فرم گیر نکند. دوباره تلاش کنید.'),
-                            'error'
-                        );
-                        return;
-                    }
-
                     try {
+                        if (!hasUsableDigitsPayload(payload)) {
+                            clearLoading();
+                            if (brandedAuth) {
+                                // Give Digits a safe failure shape so it can release its own submit lock.
+                                withoutDigitsToast(success, this, [{ success: false, data: {} }]);
+                                showDigitsInlineMessage(requestForm, digitsRequestFailure(null, 'malformed'), 'error');
+                            }
+                            return;
+                        }
                         if (payload.success) {
                             finishBrandedDigitsLogin(requestForm, payload.data);
                             if (verifiesCode && brandedAuth && completeRecovery(payload.data)) {
@@ -2364,19 +2437,19 @@
                                 success.call(this, { success: true, data: {} });
                             }
                             return;
-                        } else if (verifiesCode) {
-                            var rejected = visibleDigitsOtpInput(requestForm);
-                            var group = rejected && rejected.previousElementSibling;
-                            if (group && group.classList.contains('dg-otp-editor')) {
-                                group.setAttribute('aria-invalid', 'true');
-                            }
+                        } else if (brandedAuth && !payload.data?.reload) {
+                            var callbackArgs = Array.from(arguments);
+                            callbackArgs[0] = Object.assign({}, payload, {
+                                data: typeof payload.data === 'string' ? { message: payload.data } : payload.data
+                            });
+                            withoutDigitsToast(success, this, callbackArgs);
+                            clearLoading();
+                            digitsResponseFailure(requestForm, payload, verifiesCode, sendsCode);
+                            return;
                         }
-                        if (sendsCode && payload.success) {
+                        if (brandedAuth && payload.success) {
                             if (sendsSms) { payload.data.check_remote_status = false; }
-                            var seconds = Number(payload.data.resend_timer);
-                            if (Number.isFinite(seconds) && seconds > 0) {
-                                digitsResendTimers.set(requestForm, { seconds: seconds, until: Date.now() + seconds * 1000 });
-                            }
+                            startDigitsResendTimer(requestForm, payload.data);
                         }
                         if (smsWait && payload.success) {
                             smsWait.ready = true;
@@ -2385,7 +2458,7 @@
                         }
                         if (typeof success === 'function') {
                             var result = success.apply(this, arguments);
-                            if (sendsCode && payload.success && digitsResendTimers.has(requestForm)) {
+                            if (brandedAuth && payload.success && digitsResendTimers.has(requestForm)) {
                                 updateDigitsResend(requestForm);
                             }
                             return result;
@@ -2393,26 +2466,17 @@
                     } catch (error) {
                         clearLoading();
                         window.console && window.console.error && window.console.error(error);
-                        showLoginFailureMessage(
-                            null,
-                            getLabel('digitsAjaxCallbackError', 'خطای افزونه Digits هنگام پردازش پاسخ ورود: ') + cleanText(error && error.message, 'خطای نامشخص'),
-                            'error'
-                        );
+                        if (brandedAuth) { showDigitsInlineMessage(requestForm, digitsRequestFailure(null, 'callback'), 'error'); }
                     }
                 };
 
-                guardedSettings.error = function () {
+                guardedSettings.error = function (request, state) {
                     clearLoading();
-
-                    if (typeof errorHandler === 'function') {
-                        return errorHandler.apply(this, arguments);
+                    if (!brandedAuth) {
+                        return typeof errorHandler === 'function' ? errorHandler.apply(this, arguments) : undefined;
                     }
-
-                    showLoginFailureMessage(
-                        null,
-                        getLabel('requestError', 'درخواست AJAX ورود شکست خورد. دوباره تلاش کنید.'),
-                        'error'
-                    );
+                    withoutDigitsToast(errorHandler, this, arguments);
+                    if (state !== 'abort') { showDigitsInlineMessage(requestForm, digitsRequestFailure(request, state), 'error'); }
                 };
 
                 args[settingsIndex] = guardedSettings;
@@ -3396,55 +3460,6 @@
         return false;
     }
 
-    function bindErrorHandling() {
-        function runtimeFailureMessage(event) {
-            var raw = '';
-            var source = '';
-
-            if (event) {
-                raw = cleanText(event.message || (event.error && event.error.message) || (event.reason && event.reason.message) || event.reason, '');
-                source = cleanText(event.filename || (event.reason && event.reason.fileName), '');
-            }
-
-            if (/Cannot read properties of undefined .*reload/.test(raw) || /reading 'reload'/.test(raw)) {
-                return getLabel(
-                    'digitsReloadBug',
-                    'خطای افزونه Digits: پاسخ AJAX مرحله ورود ناقص بود و اسکریپت Digits هنگام خواندن مقدار reload خراب شد. لطفاً دوباره تلاش کنید.'
-                );
-            }
-
-            if (raw) {
-                return getLabel('runtimeErrorPrefix', 'خطای صفحه: ') + raw + (source ? ' (' + source.split('/').slice(-3).join('/') + ')' : '');
-            }
-
-            return getLabel('runtimeError', 'یک خطای صفحه رخ داد اما مرورگر جزئیات آن را گزارش نکرد. دوباره تلاش کنید.');
-        }
-
-        window.addEventListener('error', function (event) {
-            clearLoading();
-            showLoginFailureMessage(null, runtimeFailureMessage(event), 'warning');
-        });
-
-        window.addEventListener('unhandledrejection', function (event) {
-            clearLoading();
-            showLoginFailureMessage(null, runtimeFailureMessage(event), 'warning');
-        });
-
-        if (window.jQuery) {
-            window.jQuery(document).ajaxError(function (event, jqXHR, settings, errorThrown) {
-                clearLoading();
-                showLoginFailureMessage(
-                    null,
-                    responseMessage(
-                        jqXHR && jqXHR.responseJSON ? jqXHR.responseJSON : null,
-                        getLabel('requestError', 'درخواست AJAX ورود شکست خورد: ') + cleanText(errorThrown || (jqXHR && jqXHR.statusText), 'خطای نامشخص')
-                    ),
-                    'error'
-                );
-            });
-        }
-    }
-
     function bindThemeToggles() {
         document.querySelectorAll('#wp-admin-bar-digitalogic-theme-toggle a').forEach(function (anchor) {
             anchor.addEventListener('click', toggleTheme);
@@ -4384,7 +4399,6 @@
         scheduleDigitsAjaxFailureGuard();
         bindLoadingStates();
         observeInlineMessages();
-        bindErrorHandling();
         if (!document.body.classList.contains('login')) { enableRipples(); }
     });
 })();
