@@ -304,6 +304,19 @@
 						) {
 							return;
 						}
+						if (isBrandedLogin()) {
+							const redirect = new URLSearchParams(window.location.search).get('redirect_to') || '';
+							const query = new URLSearchParams({ redirect_to: redirect });
+							const url = `${config.challengeUrl}/${encodeURIComponent(expectedChallengeId)}?${query}`;
+							const recovered = await request(url, { headers: headers(expectedCsrfToken) }).catch(() => null);
+							if (stopped || expectedGeneration !== attemptGeneration || expectedChallengeId !== challengeId) {
+								return;
+							}
+							if (recovered?.redirect_url) {
+								window.location.assign(recovered.redirect_url);
+								return;
+							}
+						}
 						resetForRetry(consumeError.message);
 					}
 					return;

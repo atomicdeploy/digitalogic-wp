@@ -542,11 +542,36 @@ final class Digitalogic_Call_Verification {
 	 * @return WP_REST_Response|WP_Error
 	 */
 	public function challenge_status( WP_REST_Request $request ) {
-		return $this->read_challenge_status(
-			(string) $request->get_param( 'id' ),
-			$this->browser_binding( false ),
-			(string) $request->get_header( self::CSRF_HEADER )
-		);
+		$id      = (string) $request->get_param( 'id' );
+		$binding = $this->browser_binding( false );
+		$csrf    = (string) $request->get_header( self::CSRF_HEADER );
+		$result  = $this->read_challenge_status( $id, $binding, $csrf );
+		if ( is_wp_error( $result ) || ! $request->has_param( 'redirect_to' ) || ! $this->same_origin( $request ) ) {
+			return $result;
+		}
+		$data = $result->get_data();
+		if ( 'consumed' !== $data['status'] ) {
+			return $result;
+		}
+
+		// REST sets the current user to zero without a nonce. Check the signed
+		// login cookie directly when the browser lost the consume response.
+		$user_id = (int) wp_validate_auth_cookie( '', 'logged_in' );
+		if ( $user_id < 1 ) {
+			return $result;
+		}
+		$row = $this->find_bound_challenge( $id, $binding, $csrf );
+		if ( is_wp_error( $row ) || 'login' !== $row->purpose || 'consumed' !== $row->status
+			|| strtotime( (string) $row->consume_deadline . ' UTC' ) < time() ) {
+			return $result;
+		}
+		$phone = self::decrypt( (string) $row->phone_encrypted );
+		$user  = '' !== $phone ? $this->resolve_login_user( $phone, (string) $row->phone_hash ) : null;
+		if ( $user instanceof WP_User && $user_id === $user->ID ) {
+			$data['redirect_url'] = self::login_destination( $request->get_param( 'redirect_to' ) );
+			$result->set_data( $data );
+		}
+		return $result;
 	}
 
 	/**
