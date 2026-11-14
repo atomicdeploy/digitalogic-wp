@@ -1508,8 +1508,8 @@
                 '<button type="button" class="button wp-hide-pw dg-username-password-toggle" aria-label="' + escapeHtml(getLabel('showPassword', 'Show password')) + '"></button>',
                 '</div>',
                 '<div class="dg-username-login-actions">',
-                '<button type="submit" class="digits-form_button digits-form_submit digits-form_submit-btn dg-username-login-submit"><span>' + escapeHtml(loginLabel) + '</span></button>',
                 '<button type="button" class="button dg-username-login-back"><span class="dashicons dashicons-arrow-left-alt" aria-hidden="true"></span><span>' + escapeHtml(backLabel) + '</span></button>',
+                '<button type="submit" class="digits-form_button digits-form_submit digits-form_submit-btn dg-username-login-submit"><span>' + escapeHtml(loginLabel) + '</span></button>',
                 '</div>',
                 '</div>',
                 '</div>'
