@@ -13,6 +13,8 @@ final class Digitalogic_Plugin_Auth_Routes {
     private const CANONICAL_LOGIN_PATH = '/login/';
 
 	private const ACCOUNT_HINT_COOKIE = 'digitalogic_account_hint';
+	private const ACCOUNT_HINT_LIMIT  = 5;
+	private static float $email_attempt_started = 0.0;
 
     public static function init(): void {
         static $booted = false;
@@ -39,7 +41,73 @@ final class Digitalogic_Plugin_Auth_Routes {
         add_filter('authenticate', [self::class, 'authenticate_phone_user'], 30, 3);
         add_filter('wordfence_ls_require_captcha', [self::class, 'bypass_wordfence_captcha_for_digits'], 20);
 		add_filter( 'send_auth_cookies', array( self::class, 'remember_account' ), PHP_INT_MAX, 4 );
+		add_filter( 'authenticate', array( self::class, 'start_branded_email_login' ), 1 );
+		add_filter( 'authenticate', array( self::class, 'validate_branded_email_login' ), 99, 2 );
     }
+
+	/**
+	 * Start the response timer before WordPress looks up the email or checks the password.
+	 *
+	 * @param WP_User|WP_Error|null $user Existing authentication result.
+	 */
+	public static function start_branded_email_login( $user ) {
+		if ( '1' === ( $_POST['dg_branded_email'] ?? '' ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- WordPress sign-in POST.
+			self::$email_attempt_started = microtime( true );
+		}
+		return $user;
+	}
+
+	/**
+	 * Check the email domain at password submission without exposing account existence.
+	 *
+	 * @param WP_User|WP_Error|null $user     Existing authentication result.
+	 * @param string               $identity Submitted identity.
+	 * @return WP_User|WP_Error|null
+	 */
+	public static function validate_branded_email_login( $user, string $identity ) {
+		if ( '1' !== ( $_POST['dg_branded_email'] ?? '' ) || ! is_wp_error( $user ) // phpcs:ignore WordPress.Security.NonceVerification.Missing -- WordPress sign-in POST.
+			|| ! in_array( $user->get_error_code(), array( 'invalid_username', 'invalid_email', 'incorrect_password', 'authentication_failed' ), true ) ) {
+			return $user;
+		}
+
+		$started = self::$email_attempt_started > 0.0 ? self::$email_attempt_started : microtime( true );
+		$email   = strtolower( $identity );
+		$valid   = is_email( $email ) && self::email_domain_accepts_mail( substr( strrchr( $email, '@' ), 1 ) );
+		$delay   = 700000 - (int) ( ( microtime( true ) - $started ) * 1000000 );
+		if ( $delay > 0 ) {
+			usleep( $delay );
+		}
+		return $valid ? $user : new WP_Error( 'authentication_failed', self::failed_login_message() );
+	}
+
+	/**
+	 * Accept common providers and require a real MX target for other domains.
+	 *
+	 * @param string $domain Lowercase email domain.
+	 */
+	private static function email_domain_accepts_mail( string $domain ): bool {
+		$providers = array( 'gmail.com', 'googlemail.com', 'hotmail.com', 'outlook.com', 'live.com', 'msn.com', 'icloud.com', 'me.com', 'mac.com', 'yahoo.com', 'yahoo.co.uk', 'ymail.com', 'rocketmail.com', 'aol.com', 'proton.me', 'protonmail.com' );
+		if ( in_array( $domain, $providers, true ) ) {
+			return true;
+		}
+		if ( ! function_exists( 'getmxrr' ) || strlen( $domain ) > 253 || ! preg_match( '/\A[a-z0-9-]+(?:\.[a-z0-9-]+)+\z/', $domain ) ) {
+			return false;
+		}
+		$cache_key = hash( 'sha256', $domain );
+		$cached    = wp_cache_get( $cache_key, 'digitalogic_email_mx' );
+		if ( is_int( $cached ) ) {
+			return 1 === $cached;
+		}
+		$hosts = array();
+		$valid = getmxrr( $domain . '.', $hosts ) && (bool) array_filter(
+			$hosts,
+			static function ( string $host ): bool {
+				return '' !== rtrim( $host, '.' );
+			}
+		);
+		wp_cache_set( $cache_key, (int) $valid, 'digitalogic_email_mx', $valid ? HOUR_IN_SECONDS : 5 * MINUTE_IN_SECONDS );
+		return $valid;
+	}
 
 	/** Carry legacy recovery links into the normal sign-in flow. */
 	public static function redirect_recovery_entry(): void {
@@ -134,16 +202,19 @@ final class Digitalogic_Plugin_Auth_Routes {
 	 * @param int    $user_id    Authenticated user ID.
 	 */
 	public static function remember_account( bool $send, int $expire, int $expiration, int $user_id ): bool {
-		if ( ! $send || $user_id < 1 || headers_sent() || ! is_ssl() ) {
+		if ( ! $send || $user_id < 1 || $expire <= time() || headers_sent() || ! is_ssl() ) {
 			return $send;
 		}
-		$expires = $expire > 0 ? min( $expiration, time() + 30 * DAY_IN_SECONDS ) : 0;
-		$value   = $user_id . '.' . $expires;
+		$accounts = self::remembered_account_ids();
+		$accounts = array_values( array_diff( $accounts, array( $user_id ) ) );
+		array_unshift( $accounts, $user_id );
+		$expires = time() + 30 * DAY_IN_SECONDS;
+		$value   = implode( '-', array_slice( $accounts, 0, self::ACCOUNT_HINT_LIMIT ) ) . '.' . $expires;
 		setcookie(
 			self::ACCOUNT_HINT_COOKIE,
-			$expires > time() ? $value . '.' . hash_hmac( 'sha256', $value, wp_salt( 'logged_in' ) ) : '',
+			$value . '.' . hash_hmac( 'sha256', $value, wp_salt( 'logged_in' ) ),
 			array(
-				'expires'  => $expires > 0 ? $expires : time() - HOUR_IN_SECONDS,
+				'expires'  => $expires,
 				'path'     => '/',
 				'secure'   => true,
 				'httponly' => true,
@@ -170,17 +241,33 @@ final class Digitalogic_Plugin_Auth_Routes {
 				}
 			}
 		}
+		return array();
+	}
+
+	/** Read the signed browser list, including old single-account cookies. */
+	private static function remembered_account_ids(): array {
 		$hint = isset( $_COOKIE[ self::ACCOUNT_HINT_COOKIE ] ) ? sanitize_text_field( wp_unslash( $_COOKIE[ self::ACCOUNT_HINT_COOKIE ] ) ) : '';
-		if ( ! preg_match( '/\A([1-9][0-9]{0,11})\.([0-9]{1,12})\.([a-f0-9]{64})\z/', $hint, $matches )
+		if ( ! preg_match( '/\A([1-9][0-9]{0,11}(?:-[1-9][0-9]{0,11}){0,4})\.([0-9]{1,12})\.([a-f0-9]{64})\z/', $hint, $matches )
 			|| (int) $matches[2] <= time()
 			|| ! hash_equals( hash_hmac( 'sha256', $matches[1] . '.' . $matches[2], wp_salt( 'logged_in' ) ), $matches[3] ) ) {
 			return array();
 		}
-		$user = get_user_by( 'id', (int) $matches[1] );
-		if ( ! $user instanceof WP_User ) {
+		return array_map( 'intval', explode( '-', $matches[1] ) );
+	}
+
+	/** Return signed-out account suggestions for this browser. */
+	public static function remembered_accounts(): array {
+		if ( 'login' !== ( $GLOBALS['action'] ?? '' ) || is_user_logged_in() ) {
 			return array();
 		}
-		return self::account_hint( $user, false );
+		$accounts = array();
+		foreach ( self::remembered_account_ids() as $id ) {
+			$user = get_user_by( 'id', $id );
+			if ( $user instanceof WP_User ) {
+				$accounts[] = self::account_hint( $user, false );
+			}
+		}
+		return $accounts;
 	}
 
 	/**

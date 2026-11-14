@@ -1820,6 +1820,30 @@ msgstr "شماره موبایل یا تلفن ثابت"
 msgid "Create call code"
 msgstr "دریافت کد تماس"
 
+#: includes/integrations/class-call-verification.php
+msgid "Include the area code for landlines."
+msgstr "برای تلفن ثابت، کد شهر را هم وارد کنید."
+
+#: includes/integrations/class-call-verification.php
+msgid "Back to sign in"
+msgstr "بازگشت به ورود"
+
+#: includes/integrations/class-call-verification.php
+msgid "Your call code"
+msgstr "کد تماس شما"
+
+#: includes/integrations/class-call-verification.php
+msgid "Call from the same number you entered. When you hear «دوست عزیزم», enter the code using your phone keypad."
+msgstr "از همان شماره‌ای که وارد کردید تماس بگیرید. پس از شنیدن «دوست عزیزم»، کد را با صفحه‌کلید تلفن وارد کنید."
+
+#: includes/integrations/class-call-verification.php
+msgid "Call Digitalogic"
+msgstr "تماس با دیجیتالاجیک"
+
+#: includes/integrations/class-call-verification.php
+msgid "Edit phone number"
+msgstr "ویرایش شماره تلفن"
+
 #: includes/integrations/class-call-verification.php:1402
 #: includes/integrations/class-call-verification.php:1443
 msgid "Call"

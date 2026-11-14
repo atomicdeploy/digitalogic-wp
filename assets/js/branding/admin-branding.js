@@ -586,10 +586,10 @@
             'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="email"] input[name="digits_email"]{padding-inline-start:46px!important;padding-inline-end:16px!important;direction:ltr!important;text-align:left!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-mobile_wrapper{display:flex!important;align-items:center!important;gap:10px!important;width:100%!important;direction:ltr;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-mobile_wrapper:before{content:none!important;}',
-            'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-form_countrycode{position:static!important;z-index:60!important;display:inline-flex!important;min-width:104px!important;min-height:40px!important;justify-content:center!important;padding-inline:10px!important;border:0!important;border-inline-end:1px solid var(--dg-border)!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;}',
+            'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-form_countrycode{position:relative!important;z-index:60!important;display:inline-flex!important;min-width:0!important;min-height:40px!important;justify-content:center!important;padding-inline:0 6px!important;border:0!important;border-inline-end:1px solid var(--dg-border)!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-form_countrycode input{width:42px!important;min-height:0!important;height:auto!important;padding:0!important;line-height:1!important;text-align:left!important;}',
             'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .digits-mobile_wrapper>.digits-form_input:not(.digits-form_countrycode){flex:1 1 auto!important;min-width:0!important;width:auto!important;}',
-            'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .mobile_field{flex:1 1 auto!important;min-width:0!important;width:100%!important;padding-inline:12px!important;direction:ltr!important;text-align:left!important;}',
+            'body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .mobile_field{flex:1 1 auto!important;min-width:0!important;width:100%!important;direction:ltr!important;text-align:left!important;}',
             'body.login .dg-digits-login-shell :is(.digits-form_button,.digits-form_submit-btn):not(.digits-form_passwordless_login){min-height:56px!important;border:0!important;border-radius:18px!important;background:linear-gradient(135deg,var(--dg-accent),var(--dg-accent-strong))!important;color:#fff!important;font-family:var(--dg-font)!important;font-size:16px!important;font-weight:800!important;overflow:hidden!important;}',
             'body.login .dg-digits-login-shell :is(.digits-form_button,.digits-form_submit,.digits-form_submit-btn).is-loading .digits-form_button_ic{display:none!important;inline-size:0!important;flex-basis:0!important;opacity:0!important;visibility:hidden!important;}',
             'body.login .dg-digits-login-shell .digits-social-logins-box{background:transparent!important;border-top:0!important;border-color:transparent!important;}',
@@ -648,26 +648,27 @@
         if (digits.indexOf('0098') === 0) {
             national = digits.slice(4);
             matchedCountry = '+98';
-        } else if (digits.indexOf('98') === 0 && digits.length > 2) {
+        } else if (digits.indexOf('98') === 0 && (explicitInternational || digits.length > 10)) {
             national = digits.slice(2);
             matchedCountry = '+98';
-        } else if (digits.indexOf('0') === 0 && digits.length > 1) {
+        } else if (!explicitInternational && digits.indexOf('0') === 0 && digits.length > 1) {
             national = digits.slice(1);
             matchedCountry = '+98';
         } else if (explicitInternational) {
+            var internationalDigits = compact.indexOf('00') === 0 ? digits.slice(2) : digits;
             matchedCountry = dgCountryOptions
                 .map(function (option) {
                     return { option: option, digits: option.code.replace(/\D/g, '') };
                 })
                 .filter(function (item) {
-                    return digits.indexOf(item.digits) === 0;
+                    return internationalDigits.indexOf(item.digits) === 0;
                 })
                 .sort(function (a, b) {
                     return b.digits.length - a.digits.length;
                 })[0];
 
             if (matchedCountry) {
-                national = digits.slice(matchedCountry.digits.length);
+                national = internationalDigits.slice(matchedCountry.digits.length);
                 matchedCountry = matchedCountry.option.code;
             }
         }
@@ -722,7 +723,8 @@
     }
 
     function sanitizeIdentityValue(value) {
-        return normalizeDigits(value).replace(/[^A-Za-z0-9@._+\-]/g, '');
+        var normalized = normalizeDigits(value).replace(/\s/gu, '');
+        return normalized.includes('@') ? normalized.toLowerCase() : normalized;
     }
 
     function normalizePhoneOnBlur(input) {
@@ -1496,6 +1498,7 @@
         [
             ['log', username],
             ['pwd', password.value],
+            ['dg_branded_email', classifyIdentity(username) === 'email' ? '1' : ''],
             ['rememberme', remember && remember.checked ? 'forever' : ''],
             ['redirect_to', digitsLoginRedirect(form)],
             ['wp-submit', 'Log In']
@@ -1531,6 +1534,14 @@
             return false;
         }
 
+        if (classifyIdentity(value) === 'email') {
+            var email = form.querySelector('[name="digits_email"]');
+            if (email && !/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i.test(value)) {
+                showDigitsInlineMessage(form, isPersianLocale() ? 'نشانی ایمیل معتبر وارد کنید.' : 'Enter a valid email address.', 'warning');
+                email.focus({ preventScroll: true });
+                return true;
+            }
+        }
         showDigitsUsernamePasswordStep(form, value);
         return true;
     }
@@ -1914,10 +1925,27 @@
         var social = google && google.closest('.digits-social-logins-box');
         var submit = active.querySelector('.digits-form_submit-btn');
         if (signup && social && submit) {
-            submit.after(social);
+            var providers = social.querySelector('.digits-social-logins');
+            var divider = social.querySelector('.digits-use_social-logins');
+            [divider, providers].filter(Boolean).forEach(function (node) {
+                node.dataset.dgSharedProvider = 'true';
+            });
+            var signupSocial = register.querySelector('.dg-signup-providers');
+            if (!signupSocial) {
+                signupSocial = document.createElement('div');
+                signupSocial.className = 'digits-social-logins-box dg-signup-providers';
+                submit.after(signupSocial);
+            }
+            [divider, providers].filter(Boolean).forEach(function (node) { signupSocial.appendChild(node); });
         } else if (social && !login.contains(social)) {
-            var placement = login.querySelector('.dg-passkey-options') || submit;
-            if (placement) { placement.after(social); }
+            var loginSocial = login.querySelector('.digits-social-logins-box');
+            if (loginSocial) {
+                var disclosure = loginSocial.querySelector('.dg-passkey-options');
+                social.querySelectorAll('[data-dg-shared-provider]').forEach(function (node) {
+                    loginSocial.insertBefore(node, disclosure);
+                });
+                social.remove();
+            }
         }
         shell.dataset.dgAuthMode = signup ? 'signup' : 'login';
         return active;
@@ -2470,26 +2498,6 @@
         var phoneBody = phoneInput ? phoneInput.closest('.digits-form_tab_body') : null;
         var emailBody = emailInput ? emailInput.closest('.digits-form_tab_body') : null;
 
-        function stabilizePhoneLayout(isPhoneMode) {
-            if (!phoneInput) {
-                return;
-            }
-
-            phoneInput.style.removeProperty('padding-left');
-            phoneInput.style.removeProperty('padding-right');
-            phoneInput.style.removeProperty('width');
-            phoneInput.style.removeProperty('flex');
-
-            if (!isPhoneMode) {
-                return;
-            }
-
-            phoneInput.style.setProperty('padding-left', '12px', 'important');
-            phoneInput.style.setProperty('padding-right', '12px', 'important');
-            phoneInput.style.setProperty('width', '100%', 'important');
-            phoneInput.style.setProperty('flex', '1 1 auto', 'important');
-        }
-
         if (hidden) {
             hidden.value = nextMode === 'username' || nextMode === 'unknown' ? 'phone' : nextMode;
         }
@@ -2531,13 +2539,12 @@
         }
 
         shell.dataset.dgIdentity = nextMode;
-        stabilizePhoneLayout(nextMode === 'phone');
-        window.setTimeout(function () {
-            stabilizePhoneLayout(nextMode === 'phone');
-        }, 0);
-        window.setTimeout(function () {
-            stabilizePhoneLayout(nextMode === 'phone');
-        }, 80);
+        [phoneInput, emailInput].filter(Boolean).forEach(function (input) {
+            var holder = input.closest('.digits-form_input');
+            if (!holder) { return; }
+            holder.classList.add('dg-auth-input-icon');
+            putAuthIcon(holder, nextMode === 'email' ? 'email' : nextMode === 'phone' ? 'phone' : 'user');
+        });
 
         if (focusInput) {
             var nextInput = visibleMode === 'email' ? emailInput : phoneInput;
@@ -2606,9 +2613,17 @@
         input.setAttribute('inputmode', 'tel');
         input.setAttribute('autocomplete', 'tel-country-code');
 
-        var flag = document.createElement('span');
+        var flag = document.createElement('button');
+        flag.type = 'button';
         flag.className = 'dg-country-flag';
-        flag.setAttribute('aria-hidden', 'true');
+        function focusPhone() {
+            var phone = shell.querySelector('input[name="digits_phone"]');
+            if (phone) { phone.focus({ preventScroll: true }); }
+        }
+        flag.addEventListener('click', function () {
+            closeMenu();
+            focusPhone();
+        });
 
         var chevron = document.createElement('button');
         chevron.type = 'button';
@@ -2643,6 +2658,7 @@
             flag.textContent = '';
             flag.style.setProperty('--dg-flag', 'url(' + countryFlagUrl(option) + ')');
             flag.setAttribute('title', countryLabel(option));
+            flag.setAttribute('aria-label', isPersianLocale() ? 'وارد کردن شماره موبایل' : 'Enter mobile number');
 
             menu.querySelectorAll('.dg-country-option').forEach(function (button) {
                 var active = button.dataset.code === value;
@@ -2665,6 +2681,7 @@
                 syncFlag();
                 closeMenu();
                 input.dispatchEvent(new Event('input', { bubbles: true }));
+                focusPhone();
             });
             menu.appendChild(button);
         });
@@ -2680,6 +2697,13 @@
         });
 
         input.addEventListener('input', syncFlag);
+        input.addEventListener('focus', function () { input.select(); });
+        menu.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') {
+                closeMenu();
+                chevron.focus();
+            }
+        });
         document.addEventListener('click', function (event) {
             if (!wrap.contains(event.target)) {
                 closeMenu();
@@ -2726,10 +2750,21 @@
 
         bindCountryCodePicker(shell);
 
-        phoneInput.setAttribute('autocomplete', 'username');
-        emailInput.setAttribute('autocomplete', 'username');
+        [phoneInput, emailInput].forEach(function (input) {
+            input.setAttribute('autocomplete', 'username');
+            input.setAttribute('autocapitalize', 'none');
+            input.setAttribute('autocorrect', 'off');
+            input.spellcheck = false;
+            input.addEventListener('beforeinput', function (event) {
+                if (event.data && /^\s+$/u.test(event.data) && !event.isComposing && input.value.includes('@')) {
+                    event.preventDefault();
+                }
+            });
+        });
         phoneInput.setAttribute('dir', 'auto');
         emailInput.setAttribute('dir', 'auto');
+        emailInput.type = 'text';
+        emailInput.inputMode = 'email';
         phoneInput.placeholder = getLabel('identityPlaceholder', 'Username, email, or mobile number');
         emailInput.placeholder = getLabel('identityPlaceholder', 'Username, email, or mobile number');
         phoneInput.setAttribute('aria-label', phoneInput.placeholder);
@@ -2739,20 +2774,30 @@
             var original = input.value;
             var value = sanitizeIdentityValue(original);
             var phone = phonePartsFromValue(value);
+            var selectedCountry = countryCode ? normalizeCountryCode(countryCode.value) : '';
+            var keepSelectedCountryPhone = currentMode === 'phone' && selectedCountry && selectedCountry !== '+98' && /^\d{1,18}$/.test(value);
 
-            if (phone.type === 'phone') {
+            if (phone.type === 'phone' && !keepSelectedCountryPhone) {
                 value = phone.national;
             }
 
+            var start = input.selectionStart;
+            var end = input.selectionEnd;
+            function restoreCaret(field) {
+                if (start === null || end === null) { return; }
+                var removedPrefix = Math.max(0, sanitizeIdentityValue(original).length - value.length);
+                var from = Math.max(0, sanitizeIdentityValue(original.slice(0, start)).length - removedPrefix);
+                var to = Math.max(0, sanitizeIdentityValue(original.slice(0, end)).length - removedPrefix);
+                field.setSelectionRange(from, to);
+            }
             if (original !== value) {
-                setInputValuePreservingSelection(input, value, original);
+                input.value = value;
+                restoreCaret(input);
             }
 
-            var selectedCountry = countryCode ? normalizeCountryCode(countryCode.value) : '';
-            var keepSelectedCountryPhone = currentMode === 'phone' && selectedCountry && selectedCountry !== '+98' && /^\d{1,18}$/.test(value);
             var identity = phone.type === 'phone' || keepSelectedCountryPhone ? 'phone' : classifyIdentity(value);
 
-            if (keepSelectedCountryPhone && !phone.countryCode) {
+            if (keepSelectedCountryPhone) {
                 phone.countryCode = selectedCountry;
             }
             shell.dataset.dgIdentity = identity;
@@ -2761,6 +2806,7 @@
                 emailInput.value = value;
                 phoneInput.value = '';
                 selectDigitsMode('email', true);
+                restoreCaret(emailInput);
                 return;
             }
 
@@ -2776,6 +2822,7 @@
                     countryCode.dispatchEvent(new Event('input', { bubbles: true }));
                 }
                 selectDigitsMode('phone', true);
+                restoreCaret(phoneInput);
                 return;
             }
 
@@ -2791,6 +2838,7 @@
                 phoneInput.value = value;
                 emailInput.value = '';
                 selectDigitsMode(identity, true);
+                restoreCaret(phoneInput);
                 return;
             }
 
@@ -2870,17 +2918,12 @@
             var input = form.querySelector(signup ? '[name="phone"]' : '.digits-tab_active input:is([name="digits_phone"],[name="digits_email"])');
             if (input) { input.focus({ preventScroll: true }); }
         }
-        addAction(login, persian ? 'رمز عبور را فراموش کرده‌ام' : 'Forgot password?', beginRecovery);
-        login.querySelector('.dg-auth-card-actions button')?.classList.add('dg-recovery-entry');
-        var actions = login.querySelector('.dg-auth-card-actions');
-        if (actions) {
-            var help = document.createElement('p');
-            help.className = 'dg-sms-identity-help';
-            help.hidden = true;
-            help.textContent = persian ? 'برای دریافت کد تأیید، شماره موبایل خود را وارد کنید.'
-                : 'Enter your mobile number to receive a verification code.';
-            actions.after(help);
-        }
+        var help = document.createElement('p');
+        help.className = 'dg-sms-identity-help';
+        help.hidden = true;
+        help.textContent = persian ? 'برای دریافت کد تأیید، شماره موبایل خود را وارد کنید.'
+            : 'Enter your mobile number to receive a verification code.';
+        login.querySelector('.digits-form_heading')?.after(help);
         addAction(login, persian ? 'بازگشت به ورود' : 'Back to sign in', function () {
             var back = login.querySelector('.digits_form_back:not(.digits_hide_back)');
             if (back) { back.click(); }
@@ -2888,9 +2931,8 @@
         });
         login.querySelector('.dg-auth-card-actions button:last-child')?.classList.add('dg-recovery-back');
         if (register) {
-            addAction(login, persian ? 'ثبت‌نام' : 'Create account', function () { goToForm(true); });
             addAction(register, persian ? 'بازگشت به ورود' : 'Back to sign in', function () { goToForm(false); });
-            setBrandedAuthForm(shell, page.searchParams.get('action') === 'register' && !authRecovery);
+            setBrandedAuthForm(shell, false);
         }
         if (authRecovery) { beginRecovery(); }
     }
@@ -3598,6 +3640,17 @@
         });
 
         normalizeAuthNavigation();
+        var authShell = document.querySelector('.dg-digits-login-shell');
+        if (authShell) {
+            var footer = document.querySelector('body.login #nav');
+            if (footer) { footer.hidden = true; }
+            var home = document.querySelector('#backtoblog a');
+            if (home) {
+                home.textContent = isPersianLocale() ? 'صفحه اصلی' : 'Home';
+                home.classList.add('dg-auth-home');
+                authShell.before(home);
+            }
+        }
         document.querySelectorAll('body.login #backtoblog a').forEach(function (link) {
             var label = link.textContent.replace(/^\s*[←→]\s*/, '');
             if (label !== link.textContent) {
@@ -3616,6 +3669,7 @@
 
     var authIcons = {
         user: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z',
+        email: 'M4 5h16v14H4z M4 6l8 6 8-6',
         phone: 'M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z M10 17h4',
         lock: 'M7 10V7a5 5 0 0 1 10 0v3 M5 10h14v11H5z M12 14v3',
         key: 'M15 3a6 6 0 1 1-3 11L5 21H2v-3l7-7a6 6 0 0 1 6-8Z M16 8h.01',
@@ -3625,7 +3679,12 @@
     };
 
     function putAuthIcon(node, name) {
-        if (!node || !node.querySelector || node.querySelector(':scope > .dg-auth-icon')) { return; }
+        if (!node || !node.querySelector) { return; }
+        var previous = node.querySelector(':scope > .dg-auth-icon');
+        if (previous) {
+            if (previous.classList.contains('dg-auth-icon--' + name)) { return; }
+            previous.remove();
+        }
         var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('viewBox', '0 0 24 24');
         svg.setAttribute('aria-hidden', 'true');
@@ -3658,7 +3717,7 @@
         document.querySelectorAll('.dg-digits-login-shell, .dg-digits-register-shell').forEach(function (shell) {
             shell.querySelectorAll('input:is([name="digits_phone"],[name="digits_email"],[name="phone"],[name="password"],.dg-username-password-input)').forEach(function (input) {
                 var holder = input.closest('.digits-form_input') || input.parentElement;
-                if (input.matches('.dg-username-password-input')) { return; }
+                if (input.matches('.dg-username-password-input, [name="digits_phone"], [name="digits_email"]')) { return; }
                 holder.classList.add('dg-auth-input-icon');
                 putAuthIcon(holder, input.matches('[name="password"],.dg-username-password-input') ? 'lock' : (input.name === 'phone' ? 'phone' : 'user'));
             });
@@ -3686,41 +3745,56 @@
     }
 
     function mountRememberedAccount() {
-        var account = config.rememberedAccount;
+        var assigned = config.rememberedAccount;
+        var accounts = Array.isArray(config.rememberedAccounts) ? config.rememberedAccounts : [];
         var identity = document.querySelector('.dg-digits-login-shell input[name="digits_phone"]');
-        if (!account || !account.login || !identity || document.querySelector('.dg-account-hint')) { return; }
+        if ((!accounts.length && !(assigned && assigned.login)) || !identity || document.querySelector('.dg-account-hint')) { return; }
         var hint = document.createElement('details');
         hint.className = 'dg-account-hint';
         var summary = document.createElement('summary');
-        summary.textContent = account.assigned ? (account.name || account.login)
-            : (isPersianLocale() ? 'حساب به‌خاطر سپرده‌شده' : 'Remembered account');
-        var choice = document.createElement('button');
-        choice.type = 'button';
-        choice.textContent = account.assigned ? (isPersianLocale() ? 'ورود با حساب دیگر' : 'Use another account') : (account.name || account.login);
-        var avatarTarget = account.assigned ? summary : choice;
-        if (account.avatar) {
-            var img = document.createElement('img');
-            img.alt = '';
-            img.src = account.avatar;
-            avatarTarget.prepend(img);
-        } else {
-            putAuthIcon(avatarTarget, 'user');
-        }
-        choice.addEventListener('click', function () {
-            identity.value = account.assigned ? '' : account.login;
+        summary.textContent = isPersianLocale() ? 'انتخاب حساب' : 'Choose an account';
+        putAuthIcon(summary, 'user');
+        hint.appendChild(summary);
+        function selectAccount(value) {
+            selectDigitsMode('unknown', false);
+            identity.value = value;
             identity.dispatchEvent(new Event('input', { bubbles: true }));
             hint.open = false;
-            identity.focus();
-        });
-        hint.append(summary, choice);
-        var row = identity.closest('.digits-form_input_row');
-        if (row) {
-            row.before(hint);
-            if (account.assigned && !identity.value) {
-                identity.value = account.login;
+            identity.closest('form').querySelector('.digits-tab_active input:is([name="digits_phone"], [name="digits_email"])')?.focus();
+        }
+        function addChoice(label, value, account) {
+            var choice = document.createElement('button');
+            choice.type = 'button';
+            choice.textContent = label;
+            if (account && account.avatar) {
+                var img = document.createElement('img');
+                img.alt = '';
+                img.src = account.avatar;
+                choice.prepend(img);
+            } else {
+                putAuthIcon(choice, 'user');
+            }
+            choice.addEventListener('click', function () { selectAccount(value); });
+            hint.appendChild(choice);
+        }
+        if (assigned && assigned.login) {
+            addChoice(assigned.name || assigned.login, assigned.login, assigned);
+            if (!identity.value) {
+                identity.value = assigned.login;
                 identity.dispatchEvent(new Event('input', { bubbles: true }));
             }
         }
+        if (accounts.length) {
+            var heading = document.createElement('p');
+            heading.className = 'dg-account-hint-divider';
+            heading.textContent = isPersianLocale() ? 'حساب‌های خارج‌شده' : 'Signed out';
+            hint.appendChild(heading);
+            accounts.forEach(function (account) {
+                addChoice(account.name || account.login, account.login, account);
+            });
+        }
+        addChoice(isPersianLocale() ? 'ورود با حساب دیگر' : 'Use another account', '');
+        identity.closest('.digits-form_tab_container')?.before(hint);
     }
 
     function prefetchAuthPages() {
@@ -3775,8 +3849,10 @@
         var call = document.querySelector('#digitalogic-login-call-toggle');
         var widget = call && call.closest('[data-digitalogic-call-widget]');
         var passkey = form.querySelector('.digits-form_passwordless_login');
-        var disclosure = form.querySelector('.dg-passkey-options');
-        if (!disclosure && (passkey || widget)) {
+        var login = form.closest('form') || form;
+        var social = login.querySelector('.digits-social-logins-box');
+        var disclosure = (social && social.querySelector('.dg-passkey-options')) || form.querySelector('.dg-passkey-options');
+        if (!disclosure && (passkey || (widget && !widget.dataset.dgBrandingMounted))) {
             disclosure = document.createElement('details');
             disclosure.className = 'dg-passkey-options';
             var summary = document.createElement('summary');
@@ -3784,31 +3860,26 @@
             disclosure.appendChild(summary);
             form.appendChild(disclosure);
         }
+        if (social && disclosure && disclosure.parentElement !== social) {
+            social.appendChild(disclosure);
+        }
 
         if (passkey && passkey.parentElement !== disclosure) {
             passkey.type = 'button';
             passkey.textContent = getLabel('passkeyLogin', 'Sign in with a passkey');
             disclosure.appendChild(passkey);
-            var divider = form.querySelector('.digits-form_login_separator');
-            if (divider) {
-                divider.replaceChildren(document.createElement('span'));
-                divider.firstElementChild.textContent = isPersianLocale() ? 'یا' : 'Or';
-                disclosure.insertBefore(divider, passkey);
-            }
         }
-        if (widget && widget.parentElement !== disclosure) {
+        if (widget && widget.parentElement !== disclosure && !widget.dataset.dgBrandingMounted) {
             disclosure.appendChild(widget);
+            widget.dataset.dgBrandingMounted = 'true';
             var phone = widget.querySelector('[data-call-phone]');
             // The call controller submits this field independently of the Digits form.
             phone.setAttribute('form', 'digitalogic-call-verification-form');
             call.addEventListener('click', function () {
                 var value = digitsIdentityValue(form);
-                if (!phone.value && /^[+0-9\s()-]{8,18}$/.test(value)) { phone.value = value; }
-            });
-            widget.addEventListener('keydown', function (event) {
-                if (event.key === 'Enter' && event.target.matches('[data-call-phone]')) {
-                    event.preventDefault();
-                    widget.querySelector('[data-call-start]').click();
+                var country = form.querySelector('[name="login_digt_countrycode"]');
+                if (!phone.value && country && normalizeCountryCode(country.value) === '+98' && /^9\d{9}$/.test(value)) {
+                    phone.value = '0' + value;
                 }
             });
         }
