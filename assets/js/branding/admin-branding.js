@@ -929,11 +929,11 @@
         var label = isVisible
             ? getLabel('hidePassword', 'Hide password')
             : getLabel('showPassword', 'Show password');
-        var icon = isVisible ? 'dashicons-hidden' : 'dashicons-visibility';
-
         button.classList.toggle('is-visible', isVisible);
         button.setAttribute('aria-label', label);
-        button.innerHTML = '<span class="dashicons ' + icon + '" aria-hidden="true"></span>';
+        button.querySelector(':scope > .dashicons')?.remove();
+        putAuthIcon(button, isVisible ? 'eyeOff' : 'eye');
+        input.dir = 'ltr';
         input.classList.toggle('dg-password-visible', isVisible);
     }
 
@@ -1385,14 +1385,21 @@
         var label = document.createElement('span');
         label.className = 'dg-passwordless-label';
         label.textContent = getLabel('skipPassword', 'Sign in without a password');
-        button.appendChild(label);
-        putAuthIcon(button, 'sms');
+        var copy = document.createElement('span');
+        copy.className = 'dg-passwordless-copy';
+        copy.appendChild(label);
 
-        var caption = document.createElement('p');
+        var caption = document.createElement('span');
         caption.className = 'dg-passwordless-caption';
         caption.id = captionId;
         caption.textContent = getLabel('skipPasswordCaption', 'Forgot your password?');
-        action.append(button, caption);
+        putAuthIcon(caption, 'reset');
+        button.setAttribute('aria-labelledby', captionId + '-label');
+        label.id = captionId + '-label';
+        copy.appendChild(caption);
+        button.appendChild(copy);
+        putAuthIcon(button, 'sms');
+        action.appendChild(button);
         return action;
     }
 
@@ -1497,8 +1504,8 @@
                 '</div>',
                 '<div class="digits-form_input_row dg-username-password-row">',
                 '<span class="dashicons dashicons-lock dg-digits-row-icon" aria-hidden="true"></span>',
-                '<input class="dg-username-password-input" type="password" autocomplete="current-password" required aria-label="' + passwordLabel + '" placeholder="' + passwordLabel + '">',
-                '<button type="button" class="button wp-hide-pw dg-username-password-toggle" aria-label="' + escapeHtml(getLabel('showPassword', 'Show password')) + '"><span class="dashicons dashicons-visibility" aria-hidden="true"></span></button>',
+                '<input class="dg-username-password-input" type="password" dir="ltr" autocomplete="current-password" required aria-label="' + passwordLabel + '" placeholder="' + passwordLabel + '">',
+                '<button type="button" class="button wp-hide-pw dg-username-password-toggle" aria-label="' + escapeHtml(getLabel('showPassword', 'Show password')) + '"></button>',
                 '</div>',
                 '<div class="dg-username-login-actions">',
                 '<button type="submit" class="digits-form_button digits-form_submit digits-form_submit-btn dg-username-login-submit"><span>' + escapeHtml(loginLabel) + '</span></button>',
@@ -2772,7 +2779,7 @@
     }
 
     var dgCountryOptions = [
-        { code: '+98', flag: 'ir', label: 'Iran', labelFa: 'ایران' },
+        { code: '+98', flag: 'ir-tricolor', label: 'Iran', labelFa: 'ایران' },
         { code: '+1', flag: 'us', label: 'United States / Canada', labelFa: 'آمریکا / کانادا' },
         { code: '+971', flag: 'ae', label: 'United Arab Emirates', labelFa: 'امارات متحده عربی' },
         { code: '+90', flag: 'tr', label: 'Turkey', labelFa: 'ترکیه' },
@@ -3938,6 +3945,9 @@
         user: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z',
         home: 'M3 11l9-8 9 8 M5 10v10h14V10 M10 20v-6h4v6',
         email: 'M4 5h16v14H4z M4 6l8 6 8-6',
+        eye: 'M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12Z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
+        eyeOff: 'M3 3l18 18 M10.6 6.1 12 6c6.4 0 10 6 10 6a16 16 0 0 1-3.1 3.4 M6.1 7.9A16.4 16.4 0 0 0 2 12s3.6 6 10 6a11 11 0 0 0 4.1-.8',
+        reset: 'M4 11a8 8 0 1 1 1.8 6 M4 5v6h6 M12 8v4l2.5 1.5',
         phone: 'M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z M10 17h4',
         lock: 'M7 10V7a5 5 0 0 1 10 0v3 M5 10h14v11H5z M12 14v3',
         key: 'M15 3a6 6 0 1 1-3 11L5 21H2v-3l7-7a6 6 0 0 1 6-8Z M16 8h.01',
@@ -4175,6 +4185,47 @@
         }).observe(document.body, { childList: true, subtree: true });
     }
 
+    function animateBrandedAuthSteps() {
+        var shell = document.querySelector('.dg-digits-login-shell');
+        if (!shell || !window.MutationObserver) { return; }
+        var motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+        var previous;
+        var transition;
+
+        function activeStep() {
+            if (shell.classList.contains('dg-call-code-active')) {
+                return shell.querySelector('.dg-call-unified [data-call-instructions]');
+            }
+            var form = Array.from(shell.querySelectorAll('form:is(.digloginpage, .digits_register)')).find(isVisibleElement);
+            if (!form) { return null; }
+            var steps = Array.from(form.querySelectorAll('.digits-form_tab_container')).filter(isVisibleElement);
+            var step = steps[steps.length - 1] || form;
+            var code = step.querySelector('.dg-otp-editor');
+            return code && isVisibleElement(code) ? code : step;
+        }
+
+        previous = activeStep();
+        new MutationObserver(function () {
+            var step = activeStep();
+            if (step === previous) { return; }
+            previous = step;
+            transition?.cancel();
+            if (!step?.animate || motion.matches) { return; }
+            transition = step.animate([{ opacity: 0.58 }, { opacity: 1 }], {
+                duration: 180,
+                easing: 'cubic-bezier(0.2, 0.75, 0.25, 1)'
+            });
+        }).observe(shell, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+            attributeFilter: ['class', 'style', 'hidden']
+        });
+        motion.addEventListener?.('change', function () {
+            if (motion.matches) { transition?.cancel(); }
+        });
+    }
+
     if (config.testHooks && typeof config.testHooks === 'object') {
         config.testHooks.authLinkAction = authLinkAction;
         config.testHooks.authPageAction = authPageAction;
@@ -4233,6 +4284,7 @@
         bindDigitsAutoIdentity();
         bindBrandedAuthNavigation();
         observeAuthChrome();
+        animateBrandedAuthSteps();
         enforceDigitsRegisterMobile();
         scheduleDigitsAjaxFailureGuard();
         bindLoadingStates();

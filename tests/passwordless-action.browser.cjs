@@ -12,12 +12,13 @@ async function checkAction(page, labels, direction) {
     assert.equal(await action.count(), 1);
     const button = action.getByRole('button', { name: labels.skipPassword, exact: true });
     const caption = action.getByText(labels.skipPasswordCaption, { exact: true });
-    assert.equal(await caption.evaluate(element => element.tagName), 'P');
+    assert.equal(await caption.evaluate(element => element.closest('button')?.classList.contains('dg-skip-password')), true);
+    assert.equal(await caption.locator('svg.dg-auth-icon--reset').count(), 1);
     assert.equal(await button.getAttribute('aria-describedby'), await caption.getAttribute('id'));
     assert.equal(await page.getByRole('button', { name: labels.skipPasswordCaption, exact: true }).count(), 0);
     assert.equal(await page.getByRole('link', { name: labels.skipPasswordCaption, exact: true }).count(), 0);
 
-    assert.equal(await caption.evaluate(element => element.getBoundingClientRect().top > element.previousElementSibling.getBoundingClientRect().bottom), true);
+    assert.equal(await caption.evaluate(element => element.getBoundingClientRect().top >= element.previousElementSibling.getBoundingClientRect().bottom), true);
     await checkIconAndLabel(button, direction);
     return button;
 }
@@ -112,6 +113,23 @@ async function checkOtpEditor(page, channel) {
                     await checkIconAndLabel(page.getByRole('button', { name: labels.passkeyLogin, exact: true }), direction);
                     await page.locator('input[name="digits_phone"]').fill('fixture-user');
                     await page.getByRole('button', { name: 'Continue', exact: true }).click();
+                    const eye = page.locator('.dg-username-password-toggle');
+                    const password = page.locator('.dg-username-password-input');
+                    await password.fill('layout-test');
+                    for (const type of ['text', 'password']) {
+                        await eye.click();
+                        await page.waitForFunction(value => document.querySelector('.dg-username-password-input').type === value, type);
+                        assert.equal(await password.evaluate(e => getComputedStyle(e).direction), 'ltr');
+                        const eyeLayout = await eye.evaluate(e => {
+                            const button = e.getBoundingClientRect();
+                            const icon = e.querySelector('svg').getBoundingClientRect();
+                            const row = e.parentElement.getBoundingClientRect();
+                            const center = rect => (rect.top + rect.bottom) / 2;
+                            return [Math.abs(center(icon) - center(button)), Math.abs(center(button) - center(row)), getComputedStyle(e).color];
+                        });
+                        assert.ok(eyeLayout[0] < 1 && eyeLayout[1] < 1, 'Password eye is centered vertically');
+                        assert.notEqual(eyeLayout[2], 'rgb(0, 0, 0)');
+                    }
                 }
                 const button = await checkAction(page, labels, direction);
                 await button.click();

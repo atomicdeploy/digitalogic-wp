@@ -265,12 +265,13 @@ test('skip password selects the native SMS tab without sending the typed passwor
     harness.window.addEventListener = () => {};
     harness.document.querySelectorAll = (selector) => selector === '.dg-digits-login-shell form' ? [form] : [];
     harness.hooks.normalizeAuthChrome();
-    const [skip, caption] = action.children;
-    const [icon, label] = skip.children;
+    const [skip] = action.children;
+    const [icon, copy] = skip.children;
+    const [label, caption] = copy.children;
     assert.equal(skip.type, 'button');
     assert.equal(icon.tagName, 'svg');
     assert.equal(label.textContent, 'ورود بدون رمز عبور');
-    assert.equal(caption.tagName, 'p');
+    assert.equal(caption.tagName, 'span');
     assert.equal(caption.textContent, 'فراموشی رمز عبور');
     assert.equal(skip.attributes.get('aria-describedby'), caption.id);
     assert.equal(action.hidden, true);
