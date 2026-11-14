@@ -1094,7 +1094,7 @@ body.login .dg-username-password-row .button.wp-hide-pw > .dg-auth-icon {
 body.login .dg-username-login-actions {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 10px;
+    column-gap: 10px;
     margin-block-start: 14px;
 }
 
@@ -1136,13 +1136,12 @@ body.login .dg-digits-login-shell :is(.digits-form_login_separator, .digits-form
 
 body.login .dg-digits-login-shell .dg-passwordless-action {
     display: grid;
-    gap: 6px;
-    margin-block-start: 10px;
+    gap: 8px;
+    margin-block-start: 20px;
 }
 
 body.login .dg-username-login-actions > .dg-passwordless-action {
     grid-column: 1 / -1;
-    margin-block-start: 0;
 }
 
 body.login .dg-digits-login-shell .dg-passwordless-action > .dg-skip-password {
@@ -1169,19 +1168,11 @@ body.login .dg-passwordless-label {
 }
 
 body.login .dg-digits-login-shell .dg-passwordless-caption {
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 6px;
     margin: 0;
     padding-inline: 6px;
-    color: var(--dg-text-soft);
-    font: 500 12px/1.45 var(--dg-font, system-ui, sans-serif);
-}
-body.login .dg-passwordless-caption > .dg-auth-icon {
-    inline-size: 13px;
-    block-size: 13px;
-    flex-basis: 13px;
+    color: var(--dg-text);
+    font: 700 15px/1.6 var(--dg-font, system-ui, sans-serif);
+    text-align: start;
 }
 
 body.login .dg-digits-login-shell .dg-skip-password:hover {

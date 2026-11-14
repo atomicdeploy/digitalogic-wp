@@ -1399,7 +1399,6 @@
         caption.className = 'dg-passwordless-caption';
         caption.id = captionId;
         caption.textContent = getLabel('skipPasswordCaption', 'Forgot your password?');
-        putAuthIcon(caption, 'reset');
         action.append(caption, button);
         return action;
     }
@@ -3933,7 +3932,6 @@
         email: 'M4 5h16v14H4z M4 6l8 6 8-6',
         eye: 'M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12Z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
         eyeOff: 'M3 3l18 18 M10.6 6.1 12 6c6.4 0 10 6 10 6a16 16 0 0 1-3.1 3.4 M6.1 7.9A16.4 16.4 0 0 0 2 12s3.6 6 10 6a11 11 0 0 0 4.1-.8',
-        reset: 'M4 11a8 8 0 1 1 1.8 6 M4 5v6h6 M12 8v4l2.5 1.5',
         phone: 'M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z M10 17h4',
         lock: 'M7 10V7a5 5 0 0 1 10 0v3 M5 10h14v11H5z M12 14v3',
         key: 'M15 3a6 6 0 1 1-3 11L5 21H2v-3l7-7a6 6 0 0 1 6-8Z M16 8h.01',
