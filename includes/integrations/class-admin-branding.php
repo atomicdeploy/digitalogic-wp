@@ -33,6 +33,13 @@ final class Digitalogic_Plugin_Admin_Branding {
         add_action('login_head', [self::class, 'output_theme_bootstrap']);
         add_action('admin_enqueue_scripts', [self::class, 'enqueue_admin_assets']);
         add_action('login_enqueue_scripts', [self::class, 'enqueue_login_assets']);
+		add_action( 'wp_ajax_nopriv_digits_forms_ajax', array( self::class, 'use_utc_for_digits_forms' ), 0 );
+		add_action( 'wp_ajax_digits_forms_ajax', array( self::class, 'use_utc_for_digits_forms' ), 0 );
+		add_action( 'rest_api_init', array( self::class, 'register_login_slides_route' ) );
+		add_filter( 'digitalogic_command_handlers', array( self::class, 'auth_presentation_commands' ), 10, 2 );
+		add_filter( 'digitalogic_command_requires_auth', array( self::class, 'auth_presentation_permission' ), 10, 4 );
+		add_action( 'woocommerce_after_edit_account_form', array( self::class, 'render_passkey_settings' ) );
+		add_filter( 'gettext_digits', array( self::class, 'translate_digits_passkeys' ), 10, 2 );
         add_action('wp_ajax_digitalogic_set_admin_theme', [self::class, 'ajax_set_admin_theme']);
         add_action('admin_bar_menu', [self::class, 'admin_bar_menu'], 1);
         add_action('wp_dashboard_setup', [self::class, 'register_dashboard_widgets']);
@@ -84,6 +91,98 @@ HTML;
         self::enqueue_digits_secure_form_assets();
         self::enqueue_assets(true);
     }
+
+	/** Keep Digits' PHP clock aligned with the UTC timestamps it stores for OTPs. */
+	public static function use_utc_for_digits_forms(): void {
+		// phpcs:ignore WordPress.DateTime.RestrictedFunctions.timezone_change_date_default_timezone_set -- Digits compares its stored UTC timestamps using PHP's default timezone.
+		date_default_timezone_set( 'UTC' );
+	}
+
+	/** Register the public artwork feed for the login page. */
+	public static function register_login_slides_route(): void {
+		register_rest_route(
+			'digitalogic/v1',
+			'/login-slides',
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'permission_callback' => '__return_true',
+				'callback'            => array( self::class, 'login_slides' ),
+			)
+		);
+	}
+
+	/** Return the artwork configured for the login page. */
+	public static function login_slides(): array {
+		return array( array( 'image' => DIGITALOGIC_PLUGIN_URL . 'assets/images/branding/login-hero.png' ) );
+	}
+
+	/**
+	 * Expose the same public presentation data on the login and signup socket.
+	 *
+	 * @param array  $commands  Existing commands.
+	 * @param string $transport Current transport.
+	 */
+	public static function auth_presentation_commands( array $commands, string $transport ): array {
+		if ( 'websocket' === $transport ) {
+			$commands['digitalogic_auth_presentation'] = static function (): array {
+				return array( 'slides' => self::login_slides() );
+			};
+		}
+		return $commands;
+	}
+
+	/**
+	 * Keep credentials and account lookup outside the public command surface.
+	 *
+	 * @param bool   $required  Current authorization requirement.
+	 * @param string $command   Requested command.
+	 * @param array  $payload   Command payload.
+	 * @param string $transport Current transport.
+	 */
+	public static function auth_presentation_permission( bool $required, string $command, array $payload, string $transport ): bool {
+		return 'websocket' === $transport && 'digitalogic_auth_presentation' === $command ? false : $required;
+	}
+
+	/** Offer enrollment from account settings, after sign-in has finished. */
+	public static function render_passkey_settings(): void {
+		if ( ! is_user_logged_in() || ! shortcode_exists( 'df-biometrics-setup' ) ) {
+			return;
+		}
+
+		$settings = do_shortcode( '[df-biometrics-setup]' );
+		if ( '' === trim( $settings ) ) {
+			return;
+		}
+
+		$persian = str_starts_with( strtolower( determine_locale() ), 'fa' );
+		echo '<details><summary>' . esc_html( $persian ? 'مدیریت کلیدهای عبور' : __( 'Manage passkeys', 'digitalogic' ) ) . '</summary>';
+		echo $settings; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Markup from the installed Digits account shortcode.
+		echo '</details>';
+	}
+
+	/**
+	 * Translate passkey strings missing from the Digits Persian catalog.
+	 *
+	 * @param string $translation Existing translation.
+	 * @param string $original Original Digits string.
+	 * @return string
+	 */
+	public static function translate_digits_passkeys( string $translation, string $original ): string {
+		if ( ! str_starts_with( strtolower( determine_locale() ), 'fa' ) ) {
+			return $translation;
+		}
+		$labels = array(
+			'Passkey'                       => 'کلید عبور',
+			'Passkeys'                      => 'کلیدهای عبور',
+			'Passwordless login'            => 'ورود با کلید عبور',
+			'Sign in with a passkey'        => 'ورود با کلید عبور',
+			'Set up a passkey'              => 'تنظیم کلید عبور',
+			'Create a passkey'              => 'ایجاد کلید عبور',
+			'Add a passkey'                 => 'افزودن کلید عبور',
+			'Passkey authentication failed' => 'ورود با کلید عبور انجام نشد.',
+		);
+		return $labels[ $original ] ?? $translation;
+	}
 
     public static function admin_body_class(string $classes): string {
         return trim($classes . ' digitalogic-admin-shell');
@@ -289,10 +388,16 @@ HTML;
 
         wp_add_inline_style(self::STYLE_HANDLE, self::dynamic_css());
 
+        $dependencies = [];
+        if ($is_login) {
+            $phone_library = 'assets/vendor/libphonenumber-js/libphonenumber-max.js';
+            wp_enqueue_script('digitalogic-login-phone', DIGITALOGIC_PLUGIN_URL . $phone_library, [], '1.13.16', true);
+            $dependencies[] = 'digitalogic-login-phone';
+        }
         wp_enqueue_script(
             self::SCRIPT_HANDLE,
             DIGITALOGIC_PLUGIN_URL . self::SCRIPT_FILE,
-            [],
+            $dependencies,
             (string) filemtime($script_path),
             true
         );
@@ -455,6 +560,14 @@ JS;
         ];
 
         $config['labels'] = self::client_labels();
+		if ( $is_login ) {
+			$config['emailDomainNonce']   = wp_create_nonce( 'digitalogic_email_domain' );
+			$config['loginSlidesUrl']     = rest_url( 'digitalogic/v1/login-slides' );
+			$config['authWebSocket']      = class_exists( 'Digitalogic_WebSocket' ) ? Digitalogic_WebSocket::instance()->get_public_client_config() : array();
+			$config['rememberedAccount'] = Digitalogic_Plugin_Auth_Routes::remembered_account();
+			$config['rememberedAccounts'] = Digitalogic_Plugin_Auth_Routes::remembered_accounts();
+			$config['digitsSignupNotice'] = __( 'Please signup before logging in.', 'digits' ); // phpcs:ignore WordPress.WP.I18n.TextDomainMismatch -- Match the native Digits response.
+		}
 
         return $config;
     }
@@ -465,59 +578,103 @@ JS;
 
         if (!$is_fa) {
             return [
-                'dark' => 'Dark',
-                'light' => 'Light',
-                'toggleToDark' => 'Switch to dark mode',
-                'toggleToLight' => 'Switch to light mode',
-                'runtimeError' => 'An unexpected page error occurred. Refresh the page and try again.',
-                'requestError' => 'The background request failed. Try again or refresh the page.',
-                'requiredUsername' => 'Enter your username, email, or mobile number.',
-                'requiredPassword' => 'Enter your password.',
-                'recaptchaUnavailable' => 'Login protection has not finished loading. Try again in a moment.',
-                'usernameEmailPhone' => 'Username, email, or mobile number',
-                'identityPlaceholder' => 'Username, email, or mobile number',
-                'password' => 'Password',
-                'showPassword' => 'Show password',
-                'hidePassword' => 'Hide password',
-                'phoneIdentity' => 'Mobile',
-                'emailIdentity' => 'Email',
-                'usernameIdentity' => 'Username',
-                'identity' => 'Login',
-                'applyLanguage' => 'Change',
-                'language' => 'Language',
-                'register' => 'Register',
-                'lostPassword' => 'Reset password',
-                'login' => 'Log in',
-                'back'                 => 'Back', // phpcs:ignore Generic.WhiteSpace.DisallowSpaceIndent.SpacesUsed -- Preserve the legacy array indentation.
+                'dark'                  => 'Dark',
+                'light'                 => 'Light',
+                'toggleToDark'          => 'Switch to dark mode',
+                'toggleToLight'         => 'Switch to light mode',
+                'runtimeError'          => 'An unexpected page error occurred. Refresh the page and try again.',
+                'requestError'          => 'The background request failed. Try again or refresh the page.',
+                'requiredUsername'      => 'Enter your username, email, or mobile number.',
+                'requiredPassword'      => 'Enter your password.',
+                'recaptchaUnavailable'  => 'Login protection has not finished loading. Try again in a moment.',
+                'usernameEmailPhone'    => 'Username, email, or mobile number',
+                'identityPlaceholder'   => 'Username, email, or phone number',
+                'password'              => 'Password',
+				'skipPassword'          => 'Sign in without a password',
+				'passkeyOptions'        => 'Other sign-in options',
+				'passkeyLogin'          => 'Sign in with a passkey',
+				'otpCode'               => 'Verification code',
+				'otpDigit'              => 'Digit %d',
+				'otpIncomplete'         => 'Enter the full verification code.',
+				'otpResend'             => 'Resend code',
+				'heroSlide'             => 'Show image %d',
+				'skipPasswordCaption'   => 'Forgot your password?',
+				'smsIdentity'           => 'Enter your email address or phone number to receive a code.',
+				'sendSmsCode'           => 'Send SMS code',
+				'sendEmailCode'         => 'Send email code',
+				'invalidEmail'          => 'Enter a valid email address.',
+				'emailCodeInstructions' => 'Enter the code sent to your email address.',
+				'smsCodeInstructions'   => 'Enter the code sent to your phone.',
+				'phoneChannel'          => 'How would you like to verify?',
+				'phoneSms'              => 'Text message',
+				'phoneCall'             => 'Phone call',
+				'invalidPhone'          => 'Enter a valid phone number with its area code.',
+				'callUnavailable'       => 'Call verification is temporarily unavailable.',
+				'continue'              => 'Continue',
+				'chooseCountryCode'     => 'Choose country code',
+                'showPassword'          => 'Show password',
+                'hidePassword'          => 'Hide password',
+                'phoneIdentity'         => 'Mobile',
+                'emailIdentity'         => 'Email',
+                'usernameIdentity'      => 'Username',
+                'identity'              => 'Login',
+                'applyLanguage'         => 'Change',
+                'language'              => 'Language',
+                'register'              => 'Register',
+                'lostPassword'          => 'Reset password',
+                'login'                 => 'Log in',
+                'back'                  => 'Back', // phpcs:ignore Generic.WhiteSpace.DisallowSpaceIndent.SpacesUsed -- Preserve the legacy array indentation.
                 'recoveryIdentity' => 'Username or email address', // phpcs:ignore
             ];
         }
 
         return [
-            'dark' => 'تیره',
-            'light' => 'روشن',
-            'toggleToDark' => 'تغییر به حالت تیره',
-            'toggleToLight' => 'تغییر به حالت روشن',
-            'runtimeError' => 'یک خطای غیرمنتظره در صفحه رخ داد. صفحه را تازه‌سازی کنید و دوباره ادامه دهید.',
-            'requestError' => 'درخواست پس‌زمینه با خطا روبه‌رو شد. دوباره تلاش کنید یا صفحه را تازه‌سازی کنید.',
-            'requiredUsername' => 'نام کاربری، ایمیل یا شماره موبایل را وارد کنید.',
-            'requiredPassword' => 'رمز عبور را وارد کنید.',
-            'recaptchaUnavailable' => 'محافظت ورود هنوز کامل بارگذاری نشده است. چند لحظه دیگر دوباره تلاش کنید.',
-            'usernameEmailPhone' => 'نام کاربری، ایمیل یا شماره موبایل',
-            'identityPlaceholder' => 'نام کاربری، ایمیل یا شماره موبایل',
-            'password' => 'رمز عبور',
-            'showPassword' => 'نمایش رمز عبور',
-            'hidePassword' => 'پنهان کردن رمز عبور',
-            'phoneIdentity' => 'موبایل',
-            'emailIdentity' => 'ایمیل',
-            'usernameIdentity' => 'نام کاربری',
-            'identity' => 'ورود',
-            'applyLanguage' => 'تغییر',
-            'language' => 'زبان',
-            'register' => 'ثبت نام',
-            'lostPassword' => 'بازیابی رمز عبور',
-            'login' => 'ورود',
-            'back'                 => 'بازگشت', // phpcs:ignore Generic.WhiteSpace.DisallowSpaceIndent.SpacesUsed -- Preserve the legacy array indentation.
+            'dark'                  => 'تیره',
+            'light'                 => 'روشن',
+            'toggleToDark'          => 'تغییر به حالت تیره',
+            'toggleToLight'         => 'تغییر به حالت روشن',
+            'runtimeError'          => 'یک خطای غیرمنتظره در صفحه رخ داد. صفحه را تازه‌سازی کنید و دوباره ادامه دهید.',
+            'requestError'          => 'درخواست پس‌زمینه با خطا روبه‌رو شد. دوباره تلاش کنید یا صفحه را تازه‌سازی کنید.',
+            'requiredUsername'      => 'نام کاربری، ایمیل یا شماره موبایل را وارد کنید.',
+            'requiredPassword'      => 'رمز عبور را وارد کنید.',
+            'recaptchaUnavailable'  => 'محافظت ورود هنوز کامل بارگذاری نشده است. چند لحظه دیگر دوباره تلاش کنید.',
+            'usernameEmailPhone'    => 'نام کاربری، ایمیل یا شماره موبایل',
+            'identityPlaceholder'   => 'نام کاربری، ایمیل یا شماره تلفن',
+            'password'              => 'رمز عبور',
+			'skipPassword'          => 'ورود بدون رمز عبور',
+			'passkeyOptions'        => 'روش‌های دیگر ورود',
+			'passkeyLogin'          => 'ورود با کلید عبور',
+			'otpCode'               => 'کد تأیید',
+			'otpDigit'              => 'رقم %d',
+			'otpIncomplete'         => 'کد تأیید را کامل وارد کنید.',
+			'otpResend'             => 'ارسال مجدد کد',
+			'heroSlide'             => 'نمایش تصویر %d',
+			'skipPasswordCaption'   => 'فراموشی رمز عبور',
+			'smsIdentity'           => 'برای دریافت کد، ایمیل یا شماره تلفن خود را وارد کنید.',
+			'sendSmsCode'           => 'ارسال کد پیامکی',
+			'sendEmailCode'         => 'ارسال کد به ایمیل',
+			'invalidEmail'          => 'نشانی ایمیل معتبر وارد کنید.',
+			'emailCodeInstructions' => 'کد ارسال‌شده به ایمیل خود را وارد کنید.',
+			'smsCodeInstructions'   => 'کد پیامکی را وارد کنید.',
+			'phoneChannel'          => 'روش دریافت کد تأیید',
+			'phoneSms'              => 'پیامک',
+			'phoneCall'             => 'تماس تلفنی',
+			'invalidPhone'          => 'شماره تلفن معتبر را همراه با کد شهر وارد کنید.',
+			'callUnavailable'       => 'تأیید تلفنی موقتاً در دسترس نیست.',
+			'continue'              => 'ادامه',
+			'chooseCountryCode'     => 'انتخاب پیش‌شماره کشور',
+            'showPassword'          => 'نمایش رمز عبور',
+            'hidePassword'          => 'پنهان کردن رمز عبور',
+            'phoneIdentity'         => 'موبایل',
+            'emailIdentity'         => 'ایمیل',
+            'usernameIdentity'      => 'نام کاربری',
+            'identity'              => 'ورود',
+            'applyLanguage'         => 'تغییر',
+            'language'              => 'زبان',
+            'register'              => 'ثبت نام',
+            'lostPassword'          => 'بازیابی رمز عبور',
+            'login'                 => 'ورود',
+            'back'                  => 'بازگشت', // phpcs:ignore Generic.WhiteSpace.DisallowSpaceIndent.SpacesUsed -- Preserve the legacy array indentation.
             'recoveryIdentity' => 'نام کاربری یا نشانی ایمیل', // phpcs:ignore
         ];
     }
@@ -529,6 +686,8 @@ JS;
         $font_bold = $stylesheet_uri . '/fonts/woff2/' . rawurlencode('IRANSansWeb(FaNum)_Bold.woff2');
         $yekan_bakh = content_url('/uploads/2025/09/YekanBakh-Regular.woff2');
         $logos = self::logo_urls();
+
+		$yekan_bakh_fanum = content_url( '/uploads/2026/07/yekanbakh-vf/YekanBakhFaNum-VF.woff2' );
 
         return <<<CSS
 @font-face {
@@ -553,6 +712,13 @@ JS;
     font-display: swap;
 }
 @font-face {
+    font-family: "DigitalogicTabularFaNum";
+    src: url("{$yekan_bakh_fanum}") format("woff2");
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+}
+@font-face {
     font-family: "DigitalogicYekanBakh";
     src: url("{$yekan_bakh}") format("woff2");
     font-style: normal;
@@ -561,9 +727,13 @@ JS;
 }
 :root {
     --dg-font: "DigitalogicFanum", "IRANSans", system-ui, sans-serif;
+    --dg-auth-digits: "DigitalogicYekanBakh", system-ui, sans-serif;
     --dg-placeholder-font: "DigitalogicYekanBakh", "DigitalogicFanum", "IRANSans", system-ui, sans-serif;
     --dg-logo-light: url("{$logos['light']}");
     --dg-logo-dark: url("{$logos['dark']}");
+}
+:root:is(:lang(fa), :lang(ar), :lang(ur), :lang(ps), :lang(ckb), :lang(prs)) {
+    --dg-auth-digits: "DigitalogicTabularFaNum", var(--dg-font);
 }
 CSS;
     }

@@ -745,6 +745,10 @@ function rest_get_url_prefix() {
 function rest_url($path = '') {
     $GLOBALS['digitalogic_test_rest_url_calls']++;
 
+	if ( 'digitalogic/v1/login-slides' === $path ) {
+		return home_url( '/' . rest_get_url_prefix() . '/' . $path );
+	}
+
     throw new RuntimeException('The WooCommerce route matcher must not call rest_url().');
 }
 
@@ -1465,6 +1469,10 @@ function home_url($path = '') {
 
 function site_url($path = '') {
     return 'https://digitalogic.test/' . ltrim((string) $path, '/');
+}
+
+function is_ssl(): bool {
+	return true;
 }
 
 function content_url($path = '') {

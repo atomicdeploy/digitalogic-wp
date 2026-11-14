@@ -1,19 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 24" role="img" aria-label="United States flag">
-  <rect width="36" height="24" fill="#fff"/>
-  <g fill="#b22234">
-    <rect width="36" height="1.85"/>
-    <rect y="3.69" width="36" height="1.85"/>
-    <rect y="7.38" width="36" height="1.85"/>
-    <rect y="11.08" width="36" height="1.85"/>
-    <rect y="14.77" width="36" height="1.85"/>
-    <rect y="18.46" width="36" height="1.85"/>
-    <rect y="22.15" width="36" height="1.85"/>
-  </g>
-  <rect width="15.5" height="12.92" fill="#3c3b6e"/>
-  <g fill="#fff">
-    <circle cx="2.4" cy="2.3" r=".55"/><circle cx="5.2" cy="2.3" r=".55"/><circle cx="8" cy="2.3" r=".55"/><circle cx="10.8" cy="2.3" r=".55"/><circle cx="13.6" cy="2.3" r=".55"/>
-    <circle cx="3.8" cy="4.8" r=".55"/><circle cx="6.6" cy="4.8" r=".55"/><circle cx="9.4" cy="4.8" r=".55"/><circle cx="12.2" cy="4.8" r=".55"/>
-    <circle cx="2.4" cy="7.3" r=".55"/><circle cx="5.2" cy="7.3" r=".55"/><circle cx="8" cy="7.3" r=".55"/><circle cx="10.8" cy="7.3" r=".55"/><circle cx="13.6" cy="7.3" r=".55"/>
-    <circle cx="3.8" cy="9.8" r=".55"/><circle cx="6.6" cy="9.8" r=".55"/><circle cx="9.4" cy="9.8" r=".55"/><circle cx="12.2" cy="9.8" r=".55"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" id="flag-icons-us" viewBox="0 0 640 480">
+  <path fill="#bd3d44" d="M0 0h640v480H0"/>
+  <path stroke="#fff" stroke-width="37" d="M0 55.3h640M0 129h640M0 203h640M0 277h640M0 351h640M0 425h640"/>
+  <path fill="#192f5d" d="M0 0h364.8v258.5H0"/>
+  <marker id="us-a" markerHeight="30" markerWidth="30">
+    <path fill="#fff" d="m14 0 9 27L0 10h28L5 27z"/>
+  </marker>
+  <path fill="none" marker-mid="url(#us-a)" d="m0 0 16 11h61 61 61 61 60L47 37h61 61 60 61L16 63h61 61 61 61 60L47 89h61 61 60 61L16 115h61 61 61 61 60L47 141h61 61 60 61L16 166h61 61 61 61 60L47 192h61 61 60 61L16 218h61 61 61 61 60z"/>
 </svg>

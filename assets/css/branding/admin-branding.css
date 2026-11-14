@@ -79,9 +79,12 @@ body.wp-admin {
 }
 
 body.login {
-    min-height: 100dvh;
+    --dg-reveal-easing: cubic-bezier(0.2, 0.75, 0.25, 1);
+    --dg-reveal-short: 180ms;
+    --dg-reveal-panel: 240ms;
     height: auto !important;
     min-height: 100vh;
+    min-height: 100dvh;
     background:
         radial-gradient(circle at top right, var(--dg-overlay-a), transparent 28%),
         radial-gradient(circle at 12% 18%, var(--dg-overlay-b), transparent 24%),
@@ -90,6 +93,20 @@ body.login {
     background-repeat: no-repeat;
     background-size: cover;
     overflow-x: hidden;
+}
+
+body.login:has(.dg-digits-login-shell, .dg-digits-register-shell, #lostpasswordform, #resetpassform) {
+    display: flex;
+    flex-direction: column;
+}
+
+body.login:has(.dg-digits-login-shell, .dg-digits-register-shell, #lostpasswordform, #resetpassform) #login {
+    margin-block: auto;
+    padding-block: clamp(16px, 3vh, 32px);
+}
+body.login:has(.dg-digits-login-shell) #login {
+    min-inline-size: 0 !important;
+    margin-inline: auto !important;
 }
 
 body.login::before,
@@ -196,8 +213,8 @@ body.login.login-action-login #login {
 
 body.login.login-action-register #login {
     box-sizing: border-box;
-    width: min(720px, calc(100vw - 32px)) !important;
-    max-width: 720px !important;
+    width: min(980px, calc(100vw - 32px)) !important;
+    max-width: 980px !important;
 }
 
 body.login .digitalogic-desktop-login-message {
@@ -209,16 +226,7 @@ body.login .dg-digits-register-shell {
     margin: 0;
 }
 
-body.login .dg-digits-register-shell {
-    padding: 30px;
-    border: 1px solid var(--dg-border);
-    border-radius: 34px;
-    background: var(--dg-login-shell-bg);
-    box-shadow: var(--dg-shadow);
-    backdrop-filter: blur(18px);
-}
-
-body.login .dg-digits-login-shell {
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) {
     display: grid;
     grid-template-columns: minmax(260px, 0.9fr) minmax(0, 1.1fr);
     gap: 28px;
@@ -226,9 +234,24 @@ body.login .dg-digits-login-shell {
     padding: 28px;
     border: 1px solid var(--dg-border);
     border-radius: 34px;
-    background: var(--dg-login-shell-bg);
+    background: var(--dg-panel-strong);
     box-shadow: var(--dg-shadow);
-    backdrop-filter: blur(18px);
+}
+
+body.login .dg-digits-login-shell {
+    gap: 0;
+    padding: 0;
+}
+
+body.login .dg-digits-login-shell > .digits-form_container {
+    box-sizing: border-box;
+    padding: clamp(24px, 4vw, 40px);
+}
+
+body.login .dg-digits-register-shell:not(.dg-has-hero-carousel) {
+    grid-template-columns: minmax(0, 1fr);
+    max-inline-size: 510px;
+    margin-inline: auto;
 }
 
 body.login .dg-digits-login-shell > style {
@@ -304,6 +327,7 @@ body.login .dg-hero-track {
     inset: 0;
     z-index: 1;
     display: flex;
+    direction: ltr;
     inline-size: 100%;
     block-size: 100%;
     transform: translate3d(calc((var(--dg-track-index, 1) * -100%) + var(--dg-drag, 0px)), 0, 0);
@@ -337,14 +361,24 @@ body.login .dg-login-hero-carousel.is-dragging .dg-hero-slide {
     filter: drop-shadow(0 22px 34px color-mix(in srgb, var(--dg-bg) 16%, transparent)) saturate(1.08);
 }
 
-body.login .dg-hero-slide--two {
-    background-position: 46% 50%;
-    animation-delay: 6s;
+body.login .dg-login-hero-carousel.dg-hero-static {
+    cursor: default;
+    touch-action: auto;
 }
 
-body.login .dg-hero-slide--three {
-    background-position: 54% 48%;
-    animation-delay: 12s;
+body.login .dg-digits-login-shell > .dg-login-hero-carousel,
+body.login .dg-digits-login-shell::before {
+    min-block-size: 0;
+    border-radius: 0;
+    border-start-start-radius: 33px;
+    border-end-start-radius: 33px;
+    border-inline-end: 1px solid var(--dg-border);
+    box-shadow: none;
+}
+
+body.login .dg-digits-login-shell > .dg-login-hero-carousel .dg-hero-slide {
+    background-size: contain;
+    filter: none;
 }
 
 body.login .dg-hero-glow {
@@ -381,9 +415,7 @@ body.login .dg-hero-dots button {
     transition: width 0.32s cubic-bezier(0.16, 1, 0.3, 1), transform 0.24s ease, background 0.24s ease, box-shadow 0.24s ease;
 }
 
-body.login .dg-login-hero-carousel[data-dg-slide="0"] .dg-hero-dots button:nth-child(1),
-body.login .dg-login-hero-carousel[data-dg-slide="1"] .dg-hero-dots button:nth-child(2),
-body.login .dg-login-hero-carousel[data-dg-slide="2"] .dg-hero-dots button:nth-child(3),
+body.login .dg-hero-dots button[aria-pressed="true"],
 body.login .dg-hero-dots button:hover,
 body.login .dg-hero-dots button:focus-visible {
     width: 24px;
@@ -403,7 +435,7 @@ body.login .dg-hero-dots button:focus-visible {
     background-size: min(94%, 440px) auto, cover, cover, cover;
 }
 
-body.login .dg-digits-login-shell > :not(style) {
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) > :not(style) {
     min-width: 0;
 }
 
@@ -439,6 +471,30 @@ body.login .dg-digits-register-shell .digits-form_input_row:has(input[name="phon
 
 body.login .dg-digits-register-shell #dig_cs_password::before {
     content: "\f160";
+}
+
+/* Keep Digits' submitted country code separate from the editable number. */
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits_register .digits_phone_holder {
+    grid-column: 1 / -1;
+    width: 100%;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits_register #dig_cs_mobilenumber .digits-form_countrycode {
+    display: none !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits_register #dig_cs_mobilenumber > .digits-form_input:not(.digits-form_countrycode) {
+    width: 100%;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits_register #dig_cs_mobilenumber input[name="phone"] {
+    direction: ltr !important;
+    text-align: left;
+    padding: 0 46px 0 16px !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits_register #dig_cs_mobilenumber input[name="phone"]:placeholder-shown {
+    text-align: right;
 }
 
 body.login .dg-digits-register-shell :is(#dig_cs_name, #dig_cs_lastname, #dig_cs_username, #dig_cs_email, #dig_cs_password, .digits-form_input_row:has(input[name="phone"])) input {
@@ -553,7 +609,7 @@ body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_h
     color: var(--dg-heading) !important;
 }
 
-body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_heading_text {
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_heading_text, .dg-recovery-heading, .dg-otp-heading) {
     color: var(--dg-heading) !important;
     font-size: clamp(28px, 5vw, 36px) !important;
     font-weight: 800 !important;
@@ -624,7 +680,7 @@ body.login .dg-digits-login-shell .digits-mobile_wrapper::before {
 }
 
 body.login .dg-digits-login-shell[data-dg-identity="email"] .digits-mobile_wrapper::before,
-body.login .dg-digits-login-shell[data-dg-identity="email"] .digits-form_tab_body.digits-tab_active .digits-form_input_row::before {
+body.login .dg-digits-login-shell[data-dg-identity="email"] .digits-form_input_row:has(input[name="digits_email"])::before {
     content: "\f465";
 }
 
@@ -644,22 +700,8 @@ body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-mobile_wrapper
     direction: ltr;
 }
 
-body.login .dg-digits-login-shell.dg-digits-auto-identity:not([data-dg-identity="phone"]) .mobile_field {
-    padding-inline-start: 46px !important;
-    padding-inline-end: 16px !important;
+body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="email"] .digits-form_input_row:has(input[name="digits_email"]) {
     direction: ltr;
-    text-align: left !important;
-}
-
-body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="email"] .digits-form_tab_body.digits-tab_active .digits-form_input_row {
-    direction: ltr;
-}
-
-body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="email"] input[name="digits_email"] {
-    padding-inline-start: 46px !important;
-    padding-inline-end: 16px !important;
-    direction: ltr;
-    text-align: left !important;
 }
 
 body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .mobile_field {
@@ -720,7 +762,38 @@ body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phon
 body.login .dg-country-code-control {
     position: relative;
     z-index: 60;
-    gap: 6px;
+    gap: 3px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .dg-country-code-control {
+        animation: dg-reveal-fade var(--dg-reveal-short) var(--dg-reveal-easing);
+    }
+
+    @supports (interpolate-size: allow-keywords) {
+        body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .dg-country-code-control {
+            interpolate-size: allow-keywords;
+            animation-name: dg-prefix-expand;
+        }
+    }
+}
+
+@keyframes dg-reveal-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes dg-prefix-expand {
+    from {
+        inline-size: 0;
+        opacity: 0;
+        clip-path: inset(0 100% 0 0);
+    }
+    to {
+        inline-size: max-content;
+        opacity: 1;
+        clip-path: inset(0);
+    }
 }
 
 body.login .dg-country-flag,
@@ -728,20 +801,26 @@ body.login .dg-country-option-flag {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 20px;
+    width: 23px;
+    height: 17px;
+    flex: 0 0 auto;
+    padding: 0;
+    border: 0;
     overflow: hidden;
     border-radius: 5px;
     background: var(--dg-flag) center / cover no-repeat;
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dg-border) 70%, transparent);
     line-height: 1;
 }
+body.login button.dg-country-flag {
+    cursor: text;
+}
 
 body.login .dg-country-trigger {
     display: inline-grid;
     place-items: center;
-    width: 26px;
-    height: 30px;
+    width: 20px;
+    height: 32px;
     margin: 0;
     padding: 0;
     border: 0;
@@ -779,6 +858,7 @@ body.login .dg-country-menu {
     background: var(--dg-panel-strong);
     box-shadow: var(--dg-shadow);
     opacity: 0;
+    visibility: hidden;
     transform: translateY(-6px) scale(0.98);
     transform-origin: top left;
     pointer-events: none;
@@ -787,6 +867,7 @@ body.login .dg-country-menu {
 
 body.login .dg-country-code-control.is-open .dg-country-menu {
     opacity: 1;
+    visibility: visible;
     transform: translateY(0) scale(1);
     pointer-events: auto;
 }
@@ -845,7 +926,7 @@ body.login .dg-digits-login-shell.dg-digits-auto-identity .digits-form_countryco
     display: none;
 }
 
-body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_button, .digits-form_submit, .digits-form_submit-btn) {
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_button, .digits-form_submit, .digits-form_submit-btn):not(.digits-form_passwordless_login) {
     display: inline-flex !important;
     align-items: center;
     justify-content: center;
@@ -888,27 +969,24 @@ body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_b
     inline-size: 20px;
     block-size: 20px;
     flex: 0 0 20px;
-    transform: none !important;
-    transition: opacity 0.16s ease, color 0.16s ease;
+    margin: 0;
+    transform: scaleX(var(--dg-forward-arrow, 1)) !important;
 }
 
 body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_button_ic::before {
-    content: "\f345";
-    display: inline-block;
-    font-family: dashicons;
-    font-size: 18px;
-    line-height: 1;
-    transform: none;
+    content: none;
 }
 
-body.rtl.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_button_ic::before,
-html[dir="rtl"] body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_button_ic::before {
-    content: "\f341";
-    transform: none;
+html[dir="rtl"] body.login,
+body.rtl.login {
+    --dg-forward-arrow: -1;
 }
 
-body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_button, .digits-form_submit, .digits-form_submit-btn):hover .digits-form_button_ic {
-    transform: none !important;
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits_back_icon:not(.digits_hide_back) {
+    position: static;
+    vertical-align: middle;
+    margin-inline-end: 8px;
+    transform: scaleX(var(--dg-forward-arrow, 1));
 }
 
 body.login .dg-username-password-step {
@@ -919,20 +997,26 @@ body.login .dg-username-login-summary {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-block: 2px 14px;
-    padding: 12px 14px;
+    margin-block: 0 12px;
+    padding: 9px 14px;
     border: 1px solid var(--dg-border);
     border-radius: 16px;
     background: color-mix(in srgb, var(--dg-accent-soft) 54%, transparent);
     color: var(--dg-heading);
-    font-weight: 800;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+body.login .dg-username-login-value {
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 body.login .dg-username-login-summary .dashicons {
     color: var(--dg-accent-strong);
 }
 
-body.login .dg-username-password-row {
+body.login .dg-digits-login-shell .digits-form_input_row.dg-username-password-row {
     display: flex !important;
     align-items: center;
     gap: 10px;
@@ -958,6 +1042,7 @@ body.login .dg-username-password-input {
     width: 100%;
     min-height: 48px;
     margin: 0 !important;
+    padding: 0 !important;
     border: 0 !important;
     background: transparent !important;
     color: var(--dg-text) !important;
@@ -969,13 +1054,24 @@ body.login .dg-username-password-input {
 body.login .dg-username-password-row .button.wp-hide-pw {
     order: 2;
     flex: 0 0 42px;
+    display: grid;
+    place-items: center;
+    align-self: center;
+    margin: 0 !important;
+    color: var(--dg-accent-strong) !important;
+}
+
+body.login .dg-username-password-row .button.wp-hide-pw > .dg-auth-icon {
+    display: block;
+    margin: 0;
+    color: inherit;
 }
 
 body.login .dg-username-login-actions {
     display: grid;
-    grid-template-columns: minmax(120px, 0.38fr) minmax(0, 1fr);
-    gap: 12px;
-    margin-top: 14px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    margin-block-start: 14px;
 }
 
 body.login .dg-username-login-back {
@@ -984,6 +1080,7 @@ body.login .dg-username-login-back {
     justify-content: center;
     gap: 8px;
     min-height: 56px !important;
+    padding-inline: 14px !important;
     border-radius: 18px !important;
     border-color: var(--dg-border) !important;
     background: var(--dg-panel) !important;
@@ -992,16 +1089,320 @@ body.login .dg-username-login-back {
     font-weight: 800 !important;
 }
 
+body.login .dg-username-login-back .dashicons {
+    transform: scaleX(var(--dg-forward-arrow, 1));
+}
+
 body.login .dg-username-login-submit {
     width: 100%;
 }
 
-body.login .dg-digits-login-shell form.dg-username-step-active :is(.digits-form_rememberme, .digits-social-logins-box, .digits-form_button:not(.dg-username-login-submit), .digits-form_submit:not(.dg-username-login-submit), .digits-form_submit-btn:not(.dg-username-login-submit)) {
+body.login .dg-digits-login-shell form.dg-username-step-active :is(.digits-form_rememberme, .digits-social-logins-box),
+body.login .dg-digits-login-shell form.dg-username-step-active .digits-form_login > .digits-form_submit-btn {
     display: none !important;
 }
 
 body.login .dg-digits-login-shell form.dg-username-step-active .dg-username-password-step .digits-form_button {
     display: inline-flex !important;
+}
+
+body.login .dg-digits-login-shell :is(.digits-form_login_separator, .digits-form_passwordless_login:not(.dg-passkey-options > *), .digits-form_show_forgot_password, .dg-passwordless-action[hidden]) {
+    display: none !important;
+}
+
+body.login .dg-digits-login-shell .dg-passwordless-action {
+    display: grid;
+    gap: 6px;
+    margin-block-start: 10px;
+}
+
+body.login .dg-username-login-actions > .dg-passwordless-action {
+    grid-column: 1 / -1;
+    margin-block-start: 0;
+}
+
+body.login .dg-digits-login-shell .dg-passwordless-action > .dg-skip-password {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    inline-size: 100%;
+    min-block-size: 56px;
+    margin: 0;
+    padding: 6px 12px;
+    border: 1px solid var(--dg-border-strong);
+    border-radius: 18px;
+    background: var(--dg-panel);
+    color: var(--dg-accent-strong);
+    font: 16px/1.4 var(--dg-font);
+    font-weight: 700;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+body.login .dg-passwordless-label {
+    min-inline-size: 0;
+}
+
+body.login .dg-digits-login-shell .dg-passwordless-caption {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin: 0;
+    color: var(--dg-text-soft);
+    font: 500 12px/1.45 var(--dg-font, system-ui, sans-serif);
+}
+body.login .dg-passwordless-caption > .dg-auth-icon {
+    inline-size: 13px;
+    block-size: 13px;
+    flex-basis: 13px;
+}
+
+body.login .dg-passwordless-copy {
+    display: grid;
+    gap: 2px;
+    text-align: start;
+}
+
+body.login .dg-digits-login-shell .dg-skip-password:hover {
+    background: var(--dg-panel-strong);
+    border-color: var(--dg-accent);
+}
+
+body.login .dg-digits-login-shell .dg-skip-password:focus-visible {
+    outline: 2px solid var(--dg-accent-strong);
+    outline-offset: 2px;
+}
+
+body.login .dg-passkey-options {
+    margin-block: 14px 0;
+    color: var(--dg-text-soft);
+    font: 500 14px/1.65 var(--dg-font, system-ui, sans-serif);
+    text-align: center;
+}
+
+body.login .dg-passkey-options summary {
+    display: list-item;
+    width: fit-content;
+    margin-inline: auto;
+    padding: 8px;
+    cursor: pointer;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    @supports (interpolate-size: allow-keywords) and selector(details::details-content) {
+        body.login .dg-passkey-options::details-content {
+            interpolate-size: allow-keywords;
+            contain: layout;
+            overflow: clip;
+            overflow-clip-margin: 4px;
+            block-size: 0;
+            opacity: 0;
+            transition: block-size var(--dg-reveal-panel) var(--dg-reveal-easing),
+                opacity var(--dg-reveal-short) ease-out,
+                content-visibility var(--dg-reveal-panel) allow-discrete;
+        }
+
+        body.login .dg-passkey-options[open]::details-content {
+            block-size: auto;
+            opacity: 1;
+        }
+    }
+
+    @supports not ((interpolate-size: allow-keywords) and selector(details::details-content)) {
+        body.login .dg-passkey-options[open] > .digits-form_passwordless_login {
+            animation: dg-reveal-fade var(--dg-reveal-short) var(--dg-reveal-easing);
+        }
+    }
+}
+
+body.login .dg-digits-login-shell .dg-passkey-options > .digits-form_passwordless_login,
+body.login .dg-digits-login-shell .dg-passkey-options .digitalogic-call-toggle {
+    display: block !important;
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 44px;
+    margin: 8px 0 0;
+    padding: 8px 16px;
+    border: 1px solid var(--dg-border-strong);
+    border-radius: 14px;
+    background: var(--dg-panel);
+    color: var(--dg-accent-strong);
+    font: 700 14px var(--dg-font);
+    cursor: pointer;
+}
+
+body.login .dg-digits-login-shell form:not(.digits_form_index_section) .dg-passkey-options[open] > .digits-form_passwordless_login,
+body.login .dg-digits-login-shell form.dg-username-step-active .dg-passkey-options[open] > .digits-form_passwordless_login,
+body.login .dg-digits-login-shell form:not(.digits_form_index_section) .dg-passkey-options:not(:has(.digitalogic-call-verification)),
+body.login .dg-digits-login-shell form.dg-username-step-active .dg-passkey-options:not(:has(.digitalogic-call-verification)) {
+    display: none !important;
+}
+
+body.login .dg-digits-login-shell .dg-passkey-options .digitalogic-call-verification {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    text-align: start;
+}
+
+body.login .dg-digits-login-shell .dg-passkey-options :is(.digitalogic-call-toggle, .digits-form_passwordless_login):hover {
+    border-color: var(--dg-accent);
+    background: var(--dg-panel-strong);
+}
+
+body.login .dg-digits-login-shell .digitalogic-call-panel:not([hidden]) {
+    margin-block-start: 8px;
+    padding: 14px;
+    border: 1px solid var(--dg-border);
+    border-radius: 16px;
+    background: var(--dg-panel-soft);
+    color: var(--dg-text);
+}
+
+body.login .dg-digits-login-shell .digitalogic-call-panel input[type="tel"] {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 46px;
+    margin: 0;
+}
+
+body.login .dg-digits-login-shell .digitalogic-call-panel [data-call-start] {
+    min-height: 44px;
+    white-space: normal;
+}
+
+body.login .dg-digits-login-shell .digitalogic-call-instructions {
+    border-inline-start-color: var(--dg-accent);
+    border-radius: 12px;
+    background: var(--dg-panel);
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .dg-otp-editor {
+    display: grid;
+    grid-template-columns: repeat(var(--dg-otp-count), minmax(0, 1fr));
+    gap: clamp(4px, 1.5vw, 10px);
+    width: 100%;
+    max-width: 420px;
+    margin: 8px auto;
+    direction: ltr;
+}
+
+body.login .dg-otp-slot {
+    display: block;
+    position: relative;
+    min-width: 0;
+}
+body.login .digits-form_input:has(> .dg-otp-editor) {
+    display: block !important;
+    inline-size: 100% !important;
+    min-inline-size: 0;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .dg-otp-editor .dg-otp-slot input {
+    box-sizing: border-box;
+    width: 100%;
+    height: clamp(48px, 11vw, 62px);
+    min-width: 0;
+    padding: 0 !important;
+    border: 1px solid var(--dg-border-strong) !important;
+    border-radius: 14px !important;
+    background: var(--dg-input-bg) !important;
+    color: var(--dg-text) !important;
+    font: 700 clamp(20px, 5vw, 28px)/1 var(--dg-auth-digits, var(--dg-font, system-ui)) !important;
+    font-variant-numeric: tabular-nums !important;
+    text-align: center;
+    direction: ltr;
+    caret-color: transparent;
+    transition: background-color .16s, border-color .16s, box-shadow .16s;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .dg-otp-editor .dg-otp-slot input:hover {
+    border-color: var(--dg-accent) !important;
+    background: var(--dg-panel-strong) !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .dg-otp-editor .dg-otp-slot input:not(:placeholder-shown) {
+    background: color-mix(in srgb, var(--dg-accent) 9%, var(--dg-panel-strong)) !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .dg-otp-editor .dg-otp-slot input:focus {
+    border-color: var(--dg-accent-strong) !important;
+    outline: 0;
+    box-shadow: 0 0 0 3px var(--dg-accent-soft) !important;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .dg-otp-editor[aria-invalid="true"] .dg-otp-slot input {
+    border-color: var(--dg-danger) !important;
+    background: var(--dg-danger-soft) !important;
+}
+
+body.login .dg-otp-slot input::selection {
+    background: var(--dg-accent-soft);
+    color: var(--dg-text);
+}
+
+body.login .dg-otp-slot:has(input:focus:placeholder-shown)::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    width: 12px;
+    height: 12px;
+    margin: auto;
+    border: 2px solid var(--dg-accent-strong);
+    border-radius: 50%;
+    pointer-events: none;
+    animation: dg-otp-caret 1.25s ease-in-out infinite alternate;
+}
+
+@keyframes dg-otp-caret {
+    to { opacity: .18; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body.login .dg-otp-slot:has(input:focus:placeholder-shown)::after {
+        animation: none;
+    }
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) input.dg-otp-native {
+    position: absolute !important;
+    inset-inline-start: 0;
+    width: 1px !important;
+    height: 1px !important;
+    min-height: 0 !important;
+    opacity: 0;
+    pointer-events: none;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .dg-otp-resend {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: fit-content;
+    min-height: 42px;
+    margin: 10px auto;
+    padding: 4px 14px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: linear-gradient(var(--dg-panel-strong), var(--dg-panel-strong)) padding-box,
+        conic-gradient(var(--dg-accent-strong) var(--dg-resend-progress, 0%), var(--dg-border-strong) 0) border-box;
+    color: var(--dg-accent-strong);
+    font: 700 14px/1.65 var(--dg-font, system-ui, sans-serif);
+    text-decoration: none;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .dg-otp-resend[aria-disabled="true"] {
+    color: var(--dg-text-soft);
+    cursor: wait;
+}
+
+body.login .dg-digits-login-shell :is(.mobile_field, input[name="digits_email"], .dg-username-password-input)::placeholder {
+    color: var(--dg-text-soft) !important;
+    opacity: 1;
 }
 
 .dg-login-alert,
@@ -1136,7 +1537,7 @@ body.wp-admin .button.button-primary {
     color: #fff;
     font-weight: 700;
     box-shadow: 0 18px 36px color-mix(in srgb, var(--dg-accent-strong) 34%, transparent);
-    transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease, filter 0.16s ease;
+    transition: box-shadow 0.16s ease, opacity 0.16s ease, filter 0.16s ease;
 }
 
 body.login .button-primary,
@@ -1149,7 +1550,6 @@ body.login #wp-submit:hover,
 body.login .button.button-large:hover,
 body.wp-admin .button-primary:hover,
 body.wp-admin .button.button-primary:hover {
-    transform: translateY(-1px);
     filter: saturate(1.06);
 }
 
@@ -1316,18 +1716,49 @@ body.login p.submit {
 }
 
 body.login .digits-social-logins-box {
-    margin-top: 24px;
-    padding-top: 22px;
+    margin-top: 18px;
+    padding-top: 0;
     border-top: 0;
+}
+
+body.login .digits-social-logins-box:not([hidden], [style*="display: none"]) {
+    display: flex;
+    flex-direction: column;
 }
 
 body.login .digits-use_social-logins {
     display: flex;
     justify-content: center;
-    margin-bottom: 16px;
+    margin: 0 !important;
 }
 
-body.login .digits-use_social-logins span {
+body.login .digits-social-logins-box .digits-use_social-logins,
+body.login .digits-social-logins-box .digits-social-logins {
+    border: 0 !important;
+    background: none !important;
+}
+
+body.login .digits-social-logins-box .digits-use_social-logins {
+    order: -1;
+    padding-block: 9px 8px;
+}
+body.login .digits-social-logins-box:not([hidden]) {
+    row-gap: 9px;
+}
+body.login .digits-social-logins-box .digits-social-logins,
+body.login .digits-social-logins-box .digits-social-logins > div,
+body.login .digits-social-logins-box .digits-social-btn {
+    margin-block: 0 !important;
+    padding-block-start: 0;
+    padding-block-end: 0;
+}
+
+body.login .digits-social-logins-box :is(.digits-use_social-logins, .digits-social-logins)::before,
+body.login .digits-social-logins-box :is(.digits-use_social-logins, .digits-social-logins)::after {
+    content: none !important;
+}
+
+body.login :is(.digits-use_social-logins, .dg-passkey-options > .digits-form_login_separator) > span {
     display: inline-flex;
     align-items: center;
     gap: 12px;
@@ -1338,8 +1769,8 @@ body.login .digits-use_social-logins span {
     font-size: 13px;
 }
 
-body.login .digits-use_social-logins span::before,
-body.login .digits-use_social-logins span::after {
+body.login :is(.digits-use_social-logins, .dg-passkey-options > .digits-form_login_separator) > span::before,
+body.login :is(.digits-use_social-logins, .dg-passkey-options > .digits-form_login_separator) > span::after {
     content: "";
     width: 42px;
     height: 1px;
@@ -1361,11 +1792,10 @@ body.login .digits-social-btn {
     font-size: 16px;
     line-height: 1.35;
     box-shadow: var(--dg-shadow-soft);
-    transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+    transition: background 0.16s ease, border-color 0.16s ease;
 }
 
 body.login .digits-social-btn:hover {
-    transform: translateY(-1px);
     border-color: var(--dg-border-strong);
     background: var(--dg-panel-strong);
 }
@@ -1374,6 +1804,655 @@ body.login .digits-social-text {
     color: inherit;
     font-size: 16.5px;
     font-weight: 700;
+}
+
+body.login #digits_google_login {
+    justify-content: center;
+    direction: inherit;
+    border: 1px solid #747775 !important;
+    background: #fff !important;
+    color: #1f1f1f !important;
+    box-shadow: none;
+    cursor: pointer;
+}
+
+body.login #digits_google_login:hover { background: #f3f7fd !important; }
+body.login #digits_google_login .digits-social-icon-wrapper { flex: 0 0 20px; padding: 0 !important; background: none !important; }
+body.login #digits_google_login .digits-social-icon {
+    width: 20px;
+    height: 20px;
+    background: center / contain no-repeat url("../../images/branding/google-g.svg") !important;
+}
+
+body.login #login,
+body.login #login :is(button, a, label, input, summary, [role="button"]) {
+    -webkit-tap-highlight-color: transparent;
+}
+
+body.login #login .dg-touch-down { filter: brightness(.92); }
+body.login #login :is(button, a, summary, [role="button"]):focus-visible {
+    outline: 2px solid var(--dg-accent-strong);
+    outline-offset: 3px;
+}
+
+body.login::before,
+body.login::after { content: none; }
+body.login { background-attachment: scroll; overflow-x: clip; }
+
+body.login .dg-auth-icon {
+    display: inline-block;
+    inline-size: 20px;
+    block-size: 20px;
+    flex: 0 0 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    pointer-events: none;
+}
+
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_heading {
+    display: flex !important;
+    align-items: center;
+    gap: 12px;
+    margin-block-end: 20px;
+}
+
+body.login .digits-form_heading > .dg-auth-icon {
+    box-sizing: content-box;
+    padding: 10px;
+    border-radius: 14px;
+    color: var(--dg-accent-strong);
+    background: var(--dg-accent-soft);
+}
+
+body.login .dg-auth-input-icon { position: relative; }
+body.login .dg-auth-input-icon > .dg-auth-icon {
+    position: absolute;
+    inset-inline-start: 5px;
+    inset-block-start: calc(50% - 10px);
+    z-index: 1;
+    color: var(--dg-accent-strong);
+}
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .dg-auth-input-icon input {
+    padding-inline-start: 30px !important;
+}
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .dg-auth-input-icon:has(> input:dir(ltr), > input[type="email"], > input[type="tel"], > input[type="password"]) {
+    direction: ltr;
+}
+body.login .dg-digits-login-shell.dg-digits-auto-identity .dg-auth-input-icon:has(> input[name="digits_phone"], > input[name="digits_email"]),
+body.login .dg-digits-login-shell .digits_register .dg-auth-input-icon:has(> input[name="phone"]) {
+    direction: ltr;
+}
+body.login .dg-digits-login-shell.dg-digits-auto-identity .dg-auth-input-icon > input:is([name="digits_phone"], [name="digits_email"]),
+body.login .dg-digits-login-shell .digits_register #dig_cs_mobilenumber .dg-auth-input-icon > input[name="phone"] {
+    padding-left: 35px !important;
+    padding-right: 12px !important;
+    min-block-size: 48px;
+    font-size: 16px;
+    line-height: 1.45 !important;
+}
+body.login .dg-digits-login-shell.dg-digits-auto-identity .dg-auth-input-icon > input:is([name="digits_phone"], [name="digits_email"]) {
+    direction: ltr !important;
+    text-align: start !important;
+}
+body.login .dg-digits-login-shell.dg-digits-auto-identity .dg-auth-input-icon:has(> input[name="digits_phone"][dir="rtl"]) {
+    direction: rtl;
+}
+body.login .dg-digits-login-shell.dg-digits-auto-identity .dg-auth-input-icon > input[name="digits_phone"][dir="rtl"] {
+    direction: rtl !important;
+    padding-left: 12px !important;
+    padding-right: 35px !important;
+}
+body.login .dg-digits-login-shell[data-dg-identity="phone"] .digits-mobile_wrapper
+    > .digits-form_countrycode:not([hidden]) ~ .dg-auth-input-icon > .dg-auth-icon--phone {
+    display: none;
+}
+body.login .dg-digits-login-shell[data-dg-identity="phone"] .digits-mobile_wrapper
+    > .digits-form_countrycode:not([hidden]) ~ .dg-auth-input-icon > input[name="digits_phone"] {
+    padding-left: 12px !important;
+}
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input:has(> .dg-auth-icon) > :is(i, .digits-field_icon) {
+    display: none !important;
+}
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input_row:has(.dg-auth-input-icon)::before {
+    content: none !important;
+    display: none !important;
+}
+body.login .dg-digits-register-shell .digits_register #dig_cs_mobilenumber input[name="phone"]::placeholder {
+    color: var(--dg-text-soft) !important;
+    opacity: 1 !important;
+}
+body.login .dg-digits-register-shell .digits_register .dig_login_signup_bar {
+    color: var(--dg-text-soft) !important;
+    font-size: 14px !important;
+    margin-block: 20px 0;
+}
+body.login .dg-digits-register-shell > .digits-form_container {
+    min-block-size: 0 !important;
+    padding-block: 0 !important;
+}
+
+body.login .dg-passkey-options summary,
+body.login .dg-account-hint summary,
+body.login .dg-account-hint button,
+body.login .dg-digits-login-shell .dg-passkey-options > .digits-form_passwordless_login,
+body.login .dg-digits-login-shell .dg-passkey-options .digitalogic-call-toggle {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    text-align: center;
+}
+body.login .digits-social-logins-box .dg-passkey-options {
+    box-sizing: border-box;
+    inline-size: 100%;
+    align-self: stretch;
+    margin: 0;
+}
+body.login .dg-digits-login-shell .dg-passkey-options > .digits-form_passwordless_login {
+    border: 1px solid var(--dg-border) !important;
+    background: var(--dg-panel-soft) !important;
+    color: var(--dg-text) !important;
+    box-shadow: none !important;
+}
+body.login .dg-digits-login-shell .dg-icon-label-action {
+    align-items: center;
+    justify-content: center;
+    column-gap: 10px;
+}
+body.login .dg-digits-login-shell .dg-icon-label-action > .dg-auth-icon {
+    position: static;
+}
+body.login .dg-digits-login-shell .dg-passkey-options[open] > .digits-form_passwordless_login:hover {
+    border-color: var(--dg-border-strong) !important;
+    background: var(--dg-accent-soft) !important;
+}
+body.login .dg-digits-login-shell .dg-passkey-options > .digits-form_login_separator {
+    display: none !important;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    opacity: 1;
+}
+body.login .dg-passkey-options > .digits-form_login_separator::before,
+body.login .dg-passkey-options > .digits-form_login_separator::after {
+    content: none !important;
+}
+body.login .dg-digits-login-shell :is(form[hidden], form.forgot, .dig_login_signup_bar),
+body.login .dg-digits-login-shell .digits-form_heading:has(> .dg-recovery-heading) > .digits-form_heading_text {
+    display: none !important;
+}
+body.login .dg-digits-login-shell .dg-auth-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-block: 0 10px;
+}
+body.login :is(.dg-digits-login-shell .dg-auth-back, #login #backtoblog .dg-auth-home) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-sizing: border-box;
+    min-block-size: 44px;
+    padding: 8px 12px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--dg-accent-strong);
+    font: 700 14px/1.5 var(--dg-font, system-ui, sans-serif);
+    text-decoration: none;
+    cursor: pointer;
+}
+body.login .dg-auth-back:hover,
+body.login #login #backtoblog .dg-auth-home:hover {
+    color: var(--dg-accent-strong);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+}
+body.login :is(.dg-auth-back, .dg-auth-home) > .dg-auth-icon {
+    inline-size: 18px;
+    block-size: 18px;
+    flex-basis: 18px;
+}
+body.login :is(.dg-auth-back, .dg-auth-home) > .dg-auth-icon--back {
+    transform: scaleX(var(--dg-forward-arrow, 1));
+}
+body.login .dg-email-domain-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 10px;
+    padding-inline: 3px;
+    color: var(--dg-text-soft);
+    font: 500 13px/1.65 var(--dg-font, system-ui, sans-serif);
+}
+body.login .dg-email-domain-status:empty {
+    margin: 0;
+}
+body.login .dg-email-domain-status > .dg-auth-icon {
+    inline-size: 16px;
+    block-size: 16px;
+    flex-basis: 16px;
+}
+body.login .dg-email-domain-status[data-state="valid"] > .dg-auth-icon {
+    color: var(--dg-accent-strong);
+}
+body.login .dg-email-domain-status:is([data-state="invalid"], [data-state="format"]) > .dg-auth-icon {
+    color: var(--dg-danger);
+}
+body.login .dg-digits-login-shell .dg-sms-identity-help {
+    margin: 0 0 12px;
+    color: var(--dg-text-soft);
+    font-size: 13px;
+    line-height: 1.7;
+}
+body.login .dg-phone-channels:not([hidden]) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 12px;
+    padding: 0;
+    border: 0;
+}
+body.login .dg-phone-channels legend {
+    margin-block-end: 5px;
+    color: var(--dg-text-soft);
+}
+body.login .dg-phone-channels label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-block-size: 42px;
+    padding-inline: 12px;
+    border: 1px solid var(--dg-border);
+    border-radius: 12px;
+    cursor: pointer;
+}
+body.login .dg-phone-channels label:has(:checked) {
+    border-color: var(--dg-accent-strong);
+    background: var(--dg-accent-soft);
+}
+body.login .dg-phone-channels input {
+    margin: 0 !important;
+}
+body.login .dg-digits-login-shell.dg-call-code-active > .digits-form_container,
+body.login .dg-digits-login-shell:not(.dg-call-code-active) > .dg-call-unified,
+body.login .dg-call-unified [hidden] {
+    display: none !important;
+}
+body.login .dg-digits-login-shell > .dg-call-unified {
+    box-sizing: border-box;
+    width: 100%;
+    min-inline-size: 0;
+    margin: 0;
+    padding: clamp(20px, 4vw, 40px);
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+body.login .dg-digits-login-shell .dg-call-unified :is(.digitalogic-call-panel, .digitalogic-call-instructions) {
+    width: auto;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+body.login .dg-otp-step .digits-social-logins-box {
+    display: none !important;
+}
+body.login form:not(.dg-otp-step) .dg-otp-heading,
+body.login .dg-otp-step .digits-form_heading:has(.dg-otp-heading) > :is(.digits-form_heading_text, .dg-recovery-heading) {
+    display: none !important;
+}
+body.login .dg-otp-instructions {
+    margin: 0 0 8px;
+    color: var(--dg-text-soft);
+    font: 500 14px/1.65 var(--dg-font, system-ui, sans-serif);
+}
+body.login .dg-otp-step .digits-form_input_row:has(.dg-otp-editor) {
+    padding-inline: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+}
+body.login .dg-otp-step .digits-form_resend_otp {
+    display: flex;
+    width: fit-content;
+    margin-inline: auto;
+}
+body.login .dg-otp-step .digits-form_resend_otp:not(.dg-otp-resend) {
+    min-block-size: 42px;
+    padding: 4px 14px;
+    border: 1px solid var(--dg-border);
+    border-radius: 999px;
+    background: var(--dg-panel-strong);
+    color: var(--dg-accent-strong);
+    font: 700 14px/1.65 var(--dg-font, system-ui, sans-serif);
+}
+body.login .dg-call-unified .digitalogic-call-instructions:not([hidden]) {
+    display: grid;
+    gap: 12px;
+}
+body.login .dg-call-unified :is(h2, p) {
+    margin: 0;
+    line-height: 1.65;
+}
+body.login .dg-call-unified .dg-call-code-slots {
+    --dg-otp-count: 6;
+}
+body.login .dg-call-code-digit {
+    display: grid;
+    place-items: center;
+    min-block-size: 48px;
+    border: 1px solid var(--dg-border);
+    border-radius: 12px;
+    background: var(--dg-input-bg);
+    color: var(--dg-heading);
+    font: 700 22px/1 var(--dg-auth-digits, var(--dg-font));
+    font-variant-numeric: tabular-nums;
+}
+body.login .dg-call-wait,
+body.login .dg-call-dial,
+body.login .dg-call-unified .dg-auth-back {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+body.login .dg-call-wait {
+    justify-content: space-between;
+    color: var(--dg-text-soft);
+}
+body.login .dg-call-dial {
+    justify-content: center;
+    min-block-size: 56px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, var(--dg-accent), var(--dg-accent-strong));
+    color: #fff !important;
+    text-decoration: none;
+    font-weight: 800;
+}
+body.login .dg-call-unified .digitalogic-call-icon {
+    inline-size: 20px;
+    block-size: 20px;
+    flex: 0 0 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+}
+body.login .dg-call-unified .digitalogic-call-icon--back {
+    transform: scaleX(var(--dg-forward-arrow, 1));
+}
+body.login .dg-digits-login-shell[data-dg-auth-mode="signup"] :is(.digits-form_tabs, .digits-form_tab-bar):has(.digits-form_tab-item[data-value="phone"], .digits-form_tab-item[data-value="email"]) {
+    display: none !important;
+}
+body.login .dg-digits-login-shell .digits-form_rememberme {
+    position: static !important;
+    clear: both;
+}
+body.login .dg-recovery-dialog {
+    box-sizing: border-box;
+    inline-size: min(420px, calc(100% - 32px));
+    max-block-size: calc(100% - 32px);
+    padding: 24px;
+    border: 1px solid var(--dg-border);
+    border-radius: 20px;
+    background: var(--dg-panel-strong);
+    color: var(--dg-text);
+    font-family: var(--dg-font, system-ui, sans-serif);
+    box-shadow: var(--dg-shadow);
+}
+body.login .dg-recovery-dialog::backdrop {
+    background: rgba(7, 24, 44, .6);
+}
+@media (prefers-reduced-motion: no-preference) {
+    body.login .dg-recovery-dialog[open] {
+        animation: dg-reveal-fade var(--dg-reveal-short) var(--dg-reveal-easing);
+    }
+}
+body.login .dg-recovery-dialog form {
+    display: grid;
+    gap: 12px;
+}
+body.login .dg-recovery-dialog :is(h2, label, p) {
+    margin: 0;
+}
+body.login .dg-recovery-dialog .dg-recovery-password-error {
+    color: var(--dg-danger);
+}
+body.login .dg-recovery-dialog .dg-recovery-cancel {
+    min-block-size: 44px;
+    border: 1px solid var(--dg-border);
+    border-radius: 12px;
+    background: var(--dg-panel-soft);
+    color: var(--dg-text);
+}
+body.login .dg-passkey-options summary::-webkit-details-marker,
+body.login .dg-account-hint summary::-webkit-details-marker { display: none; }
+body.login .dg-digits-login-shell .dg-passkey-options > .digits-form_passwordless_login,
+body.login .dg-digits-login-shell .dg-passkey-options .digitalogic-call-toggle {
+    min-block-size: 52px !important;
+    block-size: 52px !important;
+    padding: 8px 14px !important;
+    margin-block: 8px 0 !important;
+    line-height: 1.4 !important;
+    background: var(--dg-panel-soft);
+    white-space: normal;
+}
+body.login .dg-digits-login-shell form:not(.digits_form_index_section) .dg-passkey-options[open] > .digits-form_passwordless_login,
+body.login .dg-digits-login-shell form.dg-username-step-active .dg-passkey-options[open] > .digits-form_passwordless_login {
+    display: none !important;
+}
+body.login .dg-digits-login-shell .digitalogic-call-code {
+    font-family: var(--dg-auth-digits, var(--dg-font, system-ui));
+    font-variant-numeric: tabular-nums;
+}
+body.login .dg-account-hint { margin-block: 0 12px; }
+body.login .dg-account-hint :is(summary, button) {
+    box-sizing: border-box;
+    inline-size: 100%;
+    min-block-size: 44px;
+    padding: 6px 12px;
+    border: 1px solid var(--dg-border);
+    border-radius: 12px;
+    background: var(--dg-panel-soft);
+    color: var(--dg-text);
+    font: inherit;
+    cursor: pointer;
+}
+body.login .dg-account-hint button { margin-block-start: 5px; }
+body.login .dg-account-hint-divider {
+    margin: 10px 0 4px;
+    padding-block-start: 8px;
+    border-block-start: 1px solid var(--dg-border);
+    color: var(--dg-text-soft);
+    font-size: 13px;
+}
+body.login .dg-digits-login-shell form:not(.digits_form_index_section) .dg-account-hint,
+body.login .dg-digits-login-shell form.dg-username-step-active .dg-account-hint,
+body.login:has(.dg-digits-login-shell) #nav {
+    display: none !important;
+}
+body.login #login:has(.dg-digits-login-shell) #backtoblog {
+    margin: 8px 0 0;
+    padding: 0;
+}
+body.login #backtoblog a.dg-auth-home::before {
+    content: none;
+}
+body.login #login #backtoblog:empty {
+    display: none;
+}
+body.login .dg-account-hint img { inline-size: 28px; block-size: 28px; border-radius: 50%; object-fit: cover; }
+body.login #login :is(#lostpasswordform, #resetpassform) {
+    background: var(--dg-panel-strong);
+    backdrop-filter: none;
+}
+body.login #login .dg-recovery-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 12px;
+    color: var(--dg-heading);
+    font-size: 22px;
+    line-height: 1.5;
+    font-weight: 700;
+}
+body.login #login .dg-recovery-title > .dg-auth-icon {
+    box-sizing: content-box;
+    padding: 10px;
+    border-radius: 13px;
+    color: var(--dg-accent-strong);
+    background: var(--dg-accent-soft);
+}
+body.login:has(#lostpasswordform) #login {
+    box-sizing: border-box;
+    width: min(460px, calc(100% - 32px)) !important;
+    min-inline-size: 0 !important;
+    max-width: min(460px, calc(100% - 32px)) !important;
+    margin-inline: auto !important;
+}
+body.login:has(#lostpasswordform) {
+    min-inline-size: 0;
+}
+body.login:has(#lostpasswordform) .language-switcher {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    box-sizing: border-box;
+    inline-size: min(286px, calc(100% - 32px));
+    min-inline-size: 0;
+    margin: 8px auto 18px;
+}
+body.login:has(#lostpasswordform) #language-switcher.dg-language-form {
+    display: block;
+    inline-size: 100%;
+    min-inline-size: 0;
+}
+body.login:has(#lostpasswordform) .dg-language-picker {
+    min-inline-size: 0;
+    max-inline-size: 100%;
+}
+body.login:has(#lostpasswordform) .language-switcher :is(.dg-theme-toggle-button, .dg-language-trigger) {
+    box-sizing: border-box;
+    inline-size: 100%;
+    min-inline-size: 0;
+    min-block-size: 44px;
+    padding-inline: 10px;
+    border: 1px solid var(--dg-border);
+    border-radius: 12px;
+    background: var(--dg-panel-strong);
+    color: var(--dg-text);
+    font: 600 14px/1.4 var(--dg-font, system-ui, sans-serif);
+    box-shadow: none;
+}
+body.login:has(#lostpasswordform) .dg-language-trigger {
+    justify-content: center;
+    gap: 6px;
+}
+body.login:has(#lostpasswordform) .dg-language-trigger .dg-select-text {
+    flex: 0 1 auto;
+}
+body.login:has(#lostpasswordform) .dg-language-trigger .dashicons-translation {
+    display: none;
+}
+body.login:has(#lostpasswordform) #login h1 {
+    margin-block-end: 20px;
+}
+body.login:has(#lostpasswordform) #login h1 a {
+    max-inline-size: 238px;
+    block-size: 68px;
+    filter: none;
+}
+body.login #login #lostpasswordform {
+    padding: clamp(20px, 6vw, 32px);
+    border-radius: 24px;
+    box-shadow: 0 12px 34px color-mix(in srgb, var(--dg-heading) 13%, transparent);
+}
+body.login #login #lostpasswordform .dg-recovery-instructions {
+    margin: 0 0 22px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    color: var(--dg-text-soft);
+    font-size: 14px;
+    line-height: 1.8;
+}
+body.login #login #lostpasswordform .dg-recovery-instructions p {
+    margin: 0;
+    padding: 0;
+    font: inherit;
+}
+body.login #lostpasswordform label[for="user_login"] {
+    display: block;
+    margin: 0 0 7px;
+}
+body.login #lostpasswordform #user_login {
+    box-sizing: border-box;
+    inline-size: 100%;
+    min-block-size: 52px;
+    padding-inline: 13px;
+    font: 400 16px/1.45 var(--dg-font, system-ui, sans-serif);
+    text-align: start;
+}
+[data-dg-theme="dark"] body.login #lostpasswordform #user_login {
+    background: var(--dg-panel-soft);
+}
+body.login #lostpasswordform p:has(> #user_login) {
+    margin: 0 0 18px;
+}
+body.login #lostpasswordform p.submit {
+    margin: 0;
+    padding: 0;
+}
+body.login #lostpasswordform #wp-submit {
+    float: none;
+    min-block-size: 52px;
+    background: linear-gradient(135deg, #0876c3, #1055b5);
+    font-family: var(--dg-font, system-ui, sans-serif);
+    font-size: 15px;
+    box-shadow: 0 6px 16px color-mix(in srgb, var(--dg-accent-strong) 22%, transparent);
+}
+body.login #lostpasswordform #wp-submit:disabled {
+    background: var(--dg-panel-soft);
+}
+body.login:has(#lostpasswordform) #login :is(#nav, #backtoblog) {
+    padding: 0;
+    margin: 12px 0 0;
+}
+body.login:has(#lostpasswordform) #login #nav {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-block-start: 16px;
+}
+body.login:has(#lostpasswordform) #login :is(#nav, #backtoblog) a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-block-size: 44px;
+    padding-inline: 16px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+}
+body.login:has(#lostpasswordform) #login #nav a.wp-login-log-in {
+    border: 1px solid var(--dg-border);
+    background: var(--dg-panel-strong);
+}
+body.login:has(#lostpasswordform) #login #backtoblog a {
+    color: var(--dg-text-soft);
+}
+[data-dg-theme="dark"] body.login:has(#lostpasswordform) #login #nav a {
+    color: #6bc9ff;
+}
+body.login .digits-form_rememberme .digits_login_remember_me {
+    transition: border-color .15s, box-shadow .15s !important;
 }
 
 body.login .language-switcher {
@@ -1415,6 +2494,18 @@ body.login a:hover,
 body.wp-admin a:hover,
 body.wp-admin a:focus {
     color: var(--dg-accent);
+}
+
+body.login #backtoblog a::before {
+    content: "";
+    display: inline-block;
+    inline-size: 0.45em;
+    block-size: 0.45em;
+    margin-inline-end: 0.55em;
+    border: solid currentColor;
+    border-width: 0 0 1.5px 1.5px;
+    vertical-align: 0.08em;
+    transform: scaleX(var(--dg-forward-arrow, 1)) rotate(45deg);
 }
 
 body.login .message,
@@ -2003,7 +3094,7 @@ body.login .dg-digits-login-shell .digits-form_rememberme {
     justify-content: flex-start !important;
     min-height: auto !important;
     height: auto !important;
-    margin-block: 4px 14px !important;
+    margin-block: 4px 24px !important;
     padding: 0 !important;
     border: 0 !important;
     background: transparent !important;
@@ -2287,10 +3378,6 @@ body.login .privacy-policy-page-link {
     margin-top: 18px;
 }
 
-body.login #nav {
-    direction: rtl;
-}
-
 body.login #nav .dg-nav-separator {
     display: inline-block;
     margin-inline: 8px;
@@ -2424,13 +3511,39 @@ body.wp-admin .digitalogic-panel-page .button-hero {
 }
 
 @media (max-width: 782px) {
+    /* The invoice notice ships with inline desktop column widths. */
+    body.wp-admin .banner_after_bulk_print_ipc.notice {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: start;
+        gap: 8px 12px;
+        overflow-wrap: anywhere;
+    }
+
+    body.wp-admin .banner_after_bulk_print_ipc.notice > div {
+        width: auto !important;
+        min-inline-size: 0;
+        text-align: start !important;
+    }
+
+    body.wp-admin .banner_after_bulk_print_ipc.notice > div:last-child {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    body.wp-admin .banner_after_bulk_print_ipc.notice .banner_close_button {
+        max-inline-size: 100%;
+        margin: 0;
+        white-space: normal;
+    }
+
     body.login #login {
         width: min(100%, calc(100vw - 24px)) !important;
         max-width: calc(100vw - 24px) !important;
         padding-top: 18px;
     }
 
-    body.login .dg-digits-login-shell {
+    body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) {
         grid-template-columns: 1fr;
         gap: 18px;
         padding: 18px;
@@ -2444,12 +3557,43 @@ body.wp-admin .digitalogic-panel-page .button-hero {
     }
 
     body.login .dg-login-hero-carousel {
-        min-height: 220px;
+        min-height: 148px;
         border-radius: 20px;
     }
 
     body.login .dg-hero-slide {
-        background-size: min(78%, 280px) auto;
+        background-size: auto 126px;
+        background-position: center 2px;
+    }
+
+    body.login .dg-hero-dots {
+        inset-block-end: 10px;
+    }
+
+    body.login .dg-digits-login-shell .digits-form_heading {
+        margin-block-end: 14px !important;
+    }
+
+    body.login .dg-digits-login-shell > .digits-form_container {
+        padding: 20px clamp(16px, 5vw, 24px) 22px;
+    }
+
+    body.login .dg-digits-login-shell {
+        gap: 0;
+        padding: 0;
+    }
+
+    body.login .dg-digits-login-shell > .dg-login-hero-carousel,
+    body.login .dg-digits-login-shell::before {
+        min-block-size: clamp(128px, 37vw, 208px);
+        border-radius: 23px 23px 0 0;
+        border-end-start-radius: 0;
+        border-inline-end: 0;
+        border-block-end: 1px solid var(--dg-border);
+    }
+
+    body.login .dg-digits-login-shell > .dg-login-hero-carousel .dg-hero-slide {
+        background-position: center;
     }
 
     body.login #loginform,

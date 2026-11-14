@@ -36,6 +36,53 @@
 		return result;
 	}
 
+	function asciiDigits(value) {
+		return value.replace(/[\u0660-\u0669\u06f0-\u06f9]/g, (digit) => {
+			const code = digit.charCodeAt(0);
+			return String(code - (code >= 0x06f0 ? 0x06f0 : 0x0660));
+		});
+	}
+
+	function normalizeCallPhone(value) {
+		const input = asciiDigits(value).trim();
+		if (!/^[+0-9().\-\s]+$/.test(input)) {
+			return '';
+		}
+
+		const compact = input.replace(/[().\-\s]/g, '');
+		const match = compact.match(/^(?:\+98|0098|98|0)?([0-9]{10})$/);
+		if (!match) {
+			return '';
+		}
+
+		const national = match[1];
+		const area = `0${national.slice(0, 2)}`;
+		const result = `+98${national}`;
+		const isLocal = national.startsWith('9') || config.areaCodes?.includes(area);
+		return isLocal && result !== config.dialNumber ? result : '';
+	}
+
+	const icons = {
+		phone: 'M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.69 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.26a2 2 0 0 1 2.11-.45c.91.33 1.85.56 2.81.69A2 2 0 0 1 22 16.92z',
+		keypad: 'M4 4h16v16H4zM8 8h.01M12 8h.01M16 8h.01M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01',
+		arrow: 'M5 12h14m-7-7 7 7-7 7',
+		back: 'M19 12H5m7 7-7-7 7-7',
+	};
+
+	function addIcon(target, name) {
+		if (!target) {
+			return;
+		}
+		const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+		const path = document.createElementNS(svg.namespaceURI, 'path');
+		svg.setAttribute('viewBox', '0 0 24 24');
+		svg.setAttribute('aria-hidden', 'true');
+		svg.classList.add('digitalogic-call-icon', `digitalogic-call-icon--${name}`);
+		path.setAttribute('d', icons[name]);
+		svg.appendChild(path);
+		target.prepend(svg);
+	}
+
 	function initializeWidget(widget) {
 		if (!(widget instanceof HTMLElement) || widget.dataset.digitalogicCallInitialized === 'true') {
 			return;
@@ -51,12 +98,30 @@
 		const cancel = widget.querySelector('[data-call-cancel]');
 		const error = widget.querySelector('[data-call-error]');
 		const dial = widget.querySelector('[data-call-dial]');
+		const dialNumber = dial?.querySelector('[data-call-dial-number]') || dial;
+		const entry = widget.querySelector('[data-call-entry]');
+		const countdown = widget.querySelector('[data-call-countdown]');
+		const codeTitle = widget.querySelector('[data-call-code-title]');
+		const back = widget.querySelector('[data-call-back]');
+		const unified = widget.hasAttribute?.('data-call-unified') || false;
 		if (!panel || !phone || !start || !instructions || !code || !status || !error) {
 			return;
 		}
 
 		widget.dataset.digitalogicCallInitialized = 'true';
 		const purpose = widget.dataset.purpose || 'login';
+		const isBrandedLogin = () => purpose === 'login' && !!widget.closest('.dg-digits-login-shell');
+		if (entry) {
+			addIcon(entry.querySelector('h2'), 'phone');
+			addIcon(phone.parentElement, 'phone');
+			addIcon(start, 'arrow');
+			addIcon(back, 'back');
+			addIcon(codeTitle, 'keypad');
+			addIcon(dial, 'phone');
+			addIcon(cancel, 'back');
+		}
+		const entryTitle = entry?.querySelector('h2');
+		const busyRegion = entry || unified ? panel : widget;
 		let challengeId = '';
 		let csrfToken = '';
 		let pollTimer = 0;
@@ -65,11 +130,40 @@
 		let stopped = false;
 		let attemptGeneration = 0;
 		let expiresAt = 0;
+		let useRealtime = false;
 		const pollInterval = Math.max(400, Math.min(750, Number(config.pollMs) || 500));
+		let consuming = false;
+
+		function showStep(step) {
+			instructions.hidden = step !== 'code';
+			if (unified) {
+				panel.hidden = step !== 'code';
+				widget.closest('.dg-digits-login-shell')?.classList.toggle('dg-call-code-active', step === 'code');
+				if (step === 'code') {
+					codeTitle.focus();
+				} else {
+					widget.closest('.dg-digits-login-shell')?.querySelector('form.digloginpage [name="digits_phone"]')?.focus();
+				}
+				return;
+			}
+			if (!entry) {
+				return;
+			}
+			entry.hidden = step === 'code';
+			panel.setAttribute('aria-labelledby', step === 'code' ? codeTitle.id : entryTitle.id);
+			if (step === 'code') {
+				codeTitle.focus();
+			} else {
+				phone.focus();
+			}
+		}
 
 		function showError(value) {
 			error.textContent = value || messages.error || 'Verification failed.';
 			error.hidden = false;
+			if (unified) {
+				widget.dispatchEvent(new CustomEvent('digitalogic:call-error', { bubbles: true, detail: error.textContent }));
+			}
 		}
 
 		function stopPolling() {
@@ -93,7 +187,12 @@
 				return;
 			}
 			const seconds = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
-			status.textContent = `${messages.waiting || 'Waiting for your call…'} ${remainingText(seconds)}`;
+			if (countdown) {
+				const minutes = Math.floor(seconds / 60);
+				countdown.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+			} else {
+				status.textContent = `${messages.waiting || 'Waiting for your call…'} ${remainingText(seconds)}`;
+			}
 			if (seconds > 0) {
 				countdownTimer = window.setTimeout(() => updateCountdown(expectedGeneration), 250);
 			}
@@ -109,25 +208,27 @@
 
 		function resetForRetry(message) {
 			stopPolling();
+			consuming = false;
 			attemptGeneration += 1;
 			challengeId = '';
 			csrfToken = '';
 			expiresAt = 0;
 			code.textContent = '';
-			instructions.hidden = true;
 			start.disabled = false;
 			if (cancel) {
 				cancel.disabled = false;
 			}
-			widget.removeAttribute('aria-busy');
+			busyRegion.removeAttribute('aria-busy');
+			showStep('entry');
 			showError(message);
 		}
 
 		async function consume(expectedGeneration, expectedChallengeId, expectedCsrfToken) {
+			const redirect = isBrandedLogin() ? new URLSearchParams(window.location.search).get('redirect_to') : '';
 			const data = await request(`${config.challengeUrl}/${encodeURIComponent(expectedChallengeId)}/consume`, {
 				method: 'POST',
 				headers: headers(expectedCsrfToken, purpose === 'add_contact'),
-				body: '{}',
+				body: redirect ? JSON.stringify({ redirect_to: redirect }) : '{}',
 			});
 			if (
 				stopped
@@ -149,34 +250,45 @@
 				stopped
 				|| expectedGeneration !== attemptGeneration
 				|| !challengeId
+				|| consuming
 				|| !widget.isConnected
 			) {
-				stopPolling();
 				return;
 			}
 			const expectedChallengeId = challengeId;
 			const expectedCsrfToken = csrfToken;
 			try {
 				pollController = new AbortController();
-				const data = await request(`${config.challengeUrl}/${encodeURIComponent(expectedChallengeId)}`, {
-					method: 'GET',
-					headers: headers(expectedCsrfToken),
-					signal: pollController.signal,
-				});
+				const realtime = useRealtime && window.DigitalogicAuthRealtime;
+				let data = realtime ? await realtime.callStatus(expectedChallengeId, expectedCsrfToken) : null;
+				if (stopped || consuming || expectedGeneration !== attemptGeneration || expectedChallengeId !== challengeId) {
+					return;
+				}
+				if (!data) {
+					useRealtime = false;
+					data = await request(`${config.challengeUrl}/${encodeURIComponent(expectedChallengeId)}`, {
+						method: 'GET',
+						headers: headers(expectedCsrfToken),
+						signal: pollController.signal,
+					});
+				}
 				pollController = null;
 				if (
 					stopped
+					|| consuming
 					|| expectedGeneration !== attemptGeneration
 					|| expectedChallengeId !== challengeId
 				) {
 					return;
 				}
 				if (data.status === 'verified') {
+					consuming = true;
 					window.clearTimeout(pollTimer);
+					window.clearTimeout(countdownTimer);
 					if (cancel) {
 						cancel.disabled = true;
 					}
-					widget.setAttribute('aria-busy', 'true');
+					busyRegion.setAttribute('aria-busy', 'true');
 					try {
 						await consume(expectedGeneration, expectedChallengeId, expectedCsrfToken);
 					} catch (consumeError) {
@@ -217,7 +329,7 @@
 		}
 
 		document.addEventListener('visibilitychange', () => {
-			if (stopped || !challengeId || !widget.isConnected) {
+			if (stopped || consuming || !challengeId || !widget.isConnected) {
 				return;
 			}
 			if (document.hidden) {
@@ -234,14 +346,65 @@
 		}
 
 		toggle?.addEventListener('click', () => {
+			const shell = entry && widget.closest('.dg-digits-login-shell');
+			if (shell && panel.hidden) {
+				shell.appendChild(panel);
+				shell.classList.add('digitalogic-call-active');
+			}
 			panel.hidden = !panel.hidden;
 			toggle.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
 			if (!panel.hidden) {
-				phone.focus();
+				showStep('entry');
 			}
 		});
 
+		back?.addEventListener('click', () => {
+			const shell = panel.closest('.dg-digits-login-shell');
+			panel.hidden = true;
+			widget.appendChild(panel);
+			shell?.classList.remove('digitalogic-call-active');
+			toggle?.setAttribute('aria-expanded', 'false');
+			toggle?.focus();
+		});
+
+		if (entry) {
+			phone.addEventListener('input', () => {
+				const normalized = asciiDigits(phone.value);
+				if (normalized !== phone.value) {
+					const position = phone.selectionStart;
+					phone.value = normalized;
+					if (position !== null) {
+						phone.setSelectionRange(position, position);
+					}
+				}
+				phone.removeAttribute('aria-invalid');
+				phone.setAttribute('aria-describedby', 'digitalogic-login-call-phone-help');
+				error.hidden = true;
+			});
+			phone.addEventListener('keydown', (event) => {
+				if (event.key === 'Enter') {
+					event.preventDefault();
+					start.click();
+				}
+			});
+		}
+
 		start?.addEventListener('click', async () => {
+			if (start.disabled) {
+				return;
+			}
+			if (entry) {
+				const normalized = normalizeCallPhone(phone.value);
+				if (!normalized) {
+					phone.setAttribute('aria-invalid', 'true');
+					phone.setAttribute('aria-describedby', `digitalogic-login-call-phone-help ${error.id}`);
+					phone.focus();
+					showError(messages.invalidPhone || 'Enter a valid Iranian mobile or landline number with its area code.');
+					return;
+				}
+				phone.value = normalized;
+				back.disabled = true;
+			}
 			stopPolling();
 			attemptGeneration += 1;
 			const expectedGeneration = attemptGeneration;
@@ -253,7 +416,7 @@
 			if (cancel) {
 				cancel.disabled = false;
 			}
-			widget.setAttribute('aria-busy', 'true');
+			busyRegion.setAttribute('aria-busy', 'true');
 			try {
 				const data = await request(config.challengeUrl, {
 					method: 'POST',
@@ -265,29 +428,72 @@
 				}
 				challengeId = data.challenge_id;
 				csrfToken = data.csrf_token;
+				useRealtime = isBrandedLogin();
+				if (useRealtime) {
+					window.DigitalogicAuthRealtime?.refreshBinding();
+				}
 				code.textContent = data.code;
-				if (dial && data.dial) {
+				if (unified && /^[0-9]{6}$/.test(String(data.code))) {
+					code.classList.add('dg-otp-editor', 'dg-call-code-slots');
+					code.setAttribute('aria-label', String(data.code));
+					code.replaceChildren(...Array.from(String(data.code), (digit) => {
+						const cell = document.createElement('span');
+						cell.className = 'dg-call-code-digit';
+						cell.setAttribute('aria-hidden', 'true');
+						cell.textContent = digit;
+						return cell;
+					}));
+				}
+				if (dialNumber && data.dial) {
 					const display = String(data.dial.display || '');
 					const tel = String(data.dial.tel || '');
-					dial.textContent = display;
+					dialNumber.textContent = display;
 					if (/^\+?[0-9]+$/.test(tel)) {
 						dial.setAttribute('href', `tel:${tel}`);
 					}
 				}
 				expiresAt = Date.now() + (Math.max(0, Number(data.expires_in) || 0) * 1000);
+				if (countdown) {
+					status.textContent = unified && document.documentElement.lang.startsWith('fa')
+						? 'در انتظار تماس شما…'
+						: (messages.waiting || 'Waiting for your call…');
+				}
 				updateCountdown(expectedGeneration);
-				instructions.hidden = false;
-				widget.removeAttribute('aria-busy');
+				showStep('code');
+				busyRegion.removeAttribute('aria-busy');
+				if (back) {
+					back.disabled = false;
+				}
 				schedulePoll(expectedGeneration);
 			} catch (startError) {
 				if (stopped || expectedGeneration !== attemptGeneration) {
 					return;
 				}
 				start.disabled = false;
-				widget.removeAttribute('aria-busy');
+				if (back) {
+					back.disabled = false;
+				}
+				busyRegion.removeAttribute('aria-busy');
 				showError(startError.message);
 			}
 		});
+
+		if (unified) {
+			addIcon(codeTitle, 'keypad');
+			addIcon(dial, 'phone');
+			addIcon(cancel, 'back');
+			window.DigitalogicCallLogin = {
+				start(value) {
+					if (!widget.isConnected || widget.dataset.callAvailable !== 'true'
+						|| !widget.closest('.dg-digits-login-shell') || !/^\+[1-9]\d{7,14}$/.test(value)) { return false; }
+					if (!start.disabled) {
+						phone.value = value;
+						start.click();
+					}
+					return true;
+				}
+			};
+		}
 
 		cancel?.addEventListener('click', async () => {
 			stopPolling();
@@ -298,9 +504,9 @@
 			csrfToken = '';
 			expiresAt = 0;
 			code.textContent = '';
-			instructions.hidden = true;
 			start.disabled = false;
-			widget.removeAttribute('aria-busy');
+			busyRegion.removeAttribute('aria-busy');
+			showStep('entry');
 			if (cancelledChallengeId) {
 				try {
 					await request(`${config.challengeUrl}/${encodeURIComponent(cancelledChallengeId)}`, {
@@ -311,7 +517,9 @@
 					// Cancellation is best effort; the server expiry remains authoritative.
 				}
 			}
-			phone.focus();
+			if (!entry) {
+				phone.focus();
+			}
 		});
 	}
 

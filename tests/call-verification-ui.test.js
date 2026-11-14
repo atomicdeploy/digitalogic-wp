@@ -50,7 +50,7 @@ test('the call alternative is disclosure-safe and makes no request until start',
 });
 
 test('server-returned dial number and code populate shortcut instructions without an invented IVR digit', () => {
-	assert.match(source, /dial\.textContent = display/);
+	assert.match(source, /dialNumber\.textContent = display/);
 	assert.match(source, /dial\.setAttribute\('href', `tel:\$\{tel\}`\)/);
 	assert.match(source, /code\.textContent = data\.code/);
 	assert.match(source, /body: JSON\.stringify\(\{ phone: phone\.value, purpose \}\)/);
@@ -74,7 +74,7 @@ test('cancelling aborts the active status request as well as invalidating its ge
 });
 
 test('cancel invalidates in-flight polling before it can consume a stale proof', () => {
-	const pollRequest = source.indexOf('const data = await request', source.indexOf('async function poll'));
+	const pollRequest = source.indexOf('data = await request', source.indexOf('async function poll'));
 	const postPollGuard = source.indexOf('expectedGeneration !== attemptGeneration', pollRequest);
 	const consumeCall = source.indexOf('await consume(expectedGeneration', pollRequest);
 	const cancelHandler = source.indexOf("cancel?.addEventListener('click'");
@@ -103,5 +103,5 @@ test('cancel is disabled once verified proof consumption becomes irreversible', 
 	assert.ok(disableCancel > verifiedBranch);
 	assert.ok(consumeCall > disableCancel);
 	assert.ok(retryReset > -1);
-	assert.match(source.slice(disableCancel, consumeCall), /widget\.setAttribute\('aria-busy', 'true'\)/);
+	assert.match(source.slice(disableCancel, consumeCall), /busyRegion\.setAttribute\('aria-busy', 'true'\)/);
 });
