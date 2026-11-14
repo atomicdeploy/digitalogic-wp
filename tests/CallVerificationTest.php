@@ -974,7 +974,7 @@ final class CallVerificationTest extends TestCase {
 		$this->assertStringContainsString( 'data-digitalogic-sidebar-call-widget hidden', $source );
 		$this->assertStringContainsString( 'data-purpose="login"', $source );
 		$this->assertStringContainsString( 'aria-expanded="false"', $source );
-		$this->assertStringContainsString( 'aria-describedby="<?php echo esc_attr( $phone_help_id ); ?>"', $source );
+		$this->assertStringContainsString( 'aria-describedby="digitalogic-sidebar-call-phone-help"', $source );
 		$this->assertStringContainsString( 'Place the call from the same phone number you entered so caller ID can confirm ownership.', $source );
 		$this->assertStringContainsString( 'data-call-dial', $source );
 		$this->assertStringContainsString( 'When the caller-ID shortcut says «دوست عزیزم»', $source );

@@ -72,12 +72,13 @@ final class Digitalogic_Plugin_Auth_Routes {
 
 		$started = self::$email_attempt_started > 0.0 ? self::$email_attempt_started : microtime( true );
 		$email   = strtolower( $identity );
-		$valid   = is_email( $email ) && self::email_domain_accepts_mail( substr( strrchr( $email, '@' ), 1 ) );
+		$valid   = filter_var( $email, FILTER_VALIDATE_EMAIL ) && self::email_domain_accepts_mail( substr( strrchr( $email, '@' ), 1 ) );
+		$known   = is_email( $email ) && get_user_by( 'email', $email ) instanceof WP_User;
 		$delay   = 700000 - (int) ( ( microtime( true ) - $started ) * 1000000 );
 		if ( $delay > 0 ) {
 			usleep( $delay );
 		}
-		return $valid ? $user : new WP_Error( 'authentication_failed', self::failed_login_message() );
+		return $valid || $known ? $user : new WP_Error( 'authentication_failed', self::failed_login_message() );
 	}
 
 	/**
