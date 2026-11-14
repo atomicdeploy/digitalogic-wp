@@ -74,7 +74,7 @@ async function render(page, direction, labels, native, search = '') {
                 <div class="digits-form_tab_wrapper">
                   <div class="digits-form_tab_container" ${native ? 'hidden' : ''}>
                     <div class="digits-form_tab_body digits-tab_active">
-                      <div class="digits-mobile_wrapper">
+                        <div class="digits-mobile_wrapper">
                         <div class="digits-form_countrycode"><input name="login_digt_countrycode" value="+98"></div>
                         <input name="digits_phone">
                       </div>
@@ -100,7 +100,7 @@ async function render(page, direction, labels, native, search = '') {
                   <div class="digits-social-logins"><div id="digits_google_login"><span class="digits-social-text">Google</span></div></div>
                 </div>
               </div>
-            </form></div></div></body></html>`
+            </form><div data-call-unified data-call-available="true" hidden></div></div></div></body></html>`
     }));
     await page.goto('https://digitalogic.test/login/' + search);
     await page.evaluate(labels => {
@@ -130,7 +130,7 @@ async function render(page, direction, labels, native, search = '') {
     }
 }
 
-async function checkEmailGate(page) {
+async function checkEmailGate(page, labels) {
     const phone = page.locator('input[name="digits_phone"]');
     const email = page.locator('input[name="digits_email"]');
     const form = page.locator('form.digloginpage');
@@ -162,6 +162,18 @@ async function checkEmailGate(page) {
     assert.equal(await primary.isDisabled(), true);
     await phone.fill('09120000000');
     assert.equal(await primary.isEnabled(), true);
+    assert.equal(await primary.innerText(), labels.sendSmsCode);
+    await phone.fill('+12025550123');
+    assert.equal(await primary.innerText(), labels.continueBySms);
+    await page.locator('input[name="dg_phone_channel"][value="call"]').check();
+    assert.equal(await primary.innerText(), labels.getCallCode);
+    await page.evaluate(() => {
+        window.DigitalogicCallLogin = { start(number) { document.body.dataset.callNumber = number; return true; } };
+    });
+    await primary.click();
+    assert.equal(await page.locator('body').getAttribute('data-call-number'), '+12025550123');
+    await phone.fill('+982112345678');
+    assert.equal(await primary.innerText(), labels.getCallCode);
     await phone.fill('preview@');
     assert.equal(await primary.isDisabled(), true);
     await email.blur();
@@ -182,12 +194,34 @@ async function checkEmailGate(page) {
     await expectState('unavailable', false);
     await status.getByRole('button').click();
     await expectState('valid', true);
+    assert.equal(await primary.innerText(), labels.enterPassword);
     assert.equal(await email.getAttribute('aria-invalid'), 'false');
     assert.equal(colors.size, 4);
     await email.fill('preview');
     assert.equal(await primary.isEnabled(), true);
     await phone.fill('');
     assert.equal(await primary.isDisabled(), true);
+}
+
+async function checkSmsAction(page, labels) {
+    await page.route('https://digitalogic.test/wp-admin/admin-ajax.php', route => route.fulfill({ json: {
+        success: true,
+        data: { html: `<div class="digits-form_tab_container"><div class="digits-form_tab_body digits-tab_active">
+            <button type="button" class="digits-form_otp_selector" data-type="email_otp">Email</button>
+            <button type="button" class="digits-form_otp_selector" data-type="sms_otp">SMS</button>
+        </div></div>` }
+    } }));
+    await page.evaluate(() => document.addEventListener('click', event => {
+        const choice = event.target.closest('.digits-form_otp_selector');
+        if (!choice) { return; }
+        document.body.dataset.selectedChannel = choice.dataset.type;
+        choice.parentElement.innerHTML = '<input name="sms_otp" class="otp_input" maxlength="6">';
+    }));
+    await page.locator('input[name="digits_phone"]').fill('09120000000');
+    await page.getByRole('button', { name: labels.sendSmsCode, exact: true }).click();
+    await page.locator('.dg-otp-slot input').first().waitFor();
+    assert.equal(await page.locator('body').getAttribute('data-selected-channel'), 'sms_otp');
+    assert.equal(await page.getByRole('button', { name: labels.verifyCode, exact: true }).isVisible(), true);
 }
 
 async function checkVerificationLabels(page, labels) {
@@ -199,9 +233,9 @@ async function checkVerificationLabels(page, labels) {
         [phone, 'sample-user', 'Continue'],
         [phone, '۰۹۱۲', 'Continue', true],
         [phone, '۰۹۱۲۰۰۰۰۰۰۰', labels.sendSmsCode, true],
-        [phone, '۰۲۱۱۲۳۴۵۶۷۸', 'Continue', true],
-        [phone, '+442079460018', 'Continue', true],
-        [phone, '+12025550123', 'Continue', true],
+        [phone, '۰۲۱۱۲۳۴۵۶۷۸', labels.getCallCode, true],
+        [phone, '+442079460018', labels.getCallCode, true],
+        [phone, '+12025550123', labels.continueBySms, true],
         [phone, '+448001111', 'Continue', true],
         [phone, '+989120000000', labels.sendSmsCode, true],
         [phone, 'demo@', 'Continue'],
@@ -273,6 +307,7 @@ async function checkAlternatives(page, visible) {
 async function checkOtpEditor(page, channel) {
     await page.evaluate(name => {
         const wrapper = document.querySelector('.digits-form_tab_wrapper');
+        wrapper.closest('form').classList.remove('digits_form_index_section');
         wrapper.innerHTML = `<div class="digits-form_tab_container"><div class="digits-form_input_row"><div class="digits-form_input"><input name="${name}_otp" class="otp_input" maxlength="6"></div></div></div>`;
     }, channel);
     const cells = page.locator('.dg-otp-slot input');
@@ -304,7 +339,11 @@ async function checkOtpEditor(page, channel) {
                 requiredPassword: direction === 'rtl' ? 'رمز عبور را وارد کنید.' : 'Enter your password.',
                 passkeyLogin: direction === 'rtl' ? 'ورود با کلید عبور' : 'Sign in with a passkey',
                 sendSmsCode: direction === 'rtl' ? 'ارسال کد پیامکی' : 'Send SMS code',
-                sendEmailCode: direction === 'rtl' ? 'ارسال کد به ایمیل' : 'Send email code'
+                sendEmailCode: direction === 'rtl' ? 'ارسال کد به ایمیل' : 'Send email code',
+                enterPassword: direction === 'rtl' ? 'وارد کردن رمز عبور' : 'Enter password',
+                getCallCode: direction === 'rtl' ? 'دریافت کد تماس' : 'Get call code',
+                continueBySms: direction === 'rtl' ? 'ادامه با پیامک' : 'Continue by SMS',
+                verifyCode: direction === 'rtl' ? 'تأیید کد' : 'Verify code'
             };
             for (const native of [true, false]) {
                 const page = await browser.newPage({ viewport: { width, height: 800 }, hasTouch: direction === 'rtl' });
@@ -320,7 +359,7 @@ async function checkOtpEditor(page, channel) {
                     await page.locator('.dg-passkey-options summary').click();
                     await checkIconAndLabel(page.getByRole('button', { name: labels.passkeyLogin, exact: true }), direction);
                     await page.locator('input[name="digits_phone"]').fill('fixture-user');
-                    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+                    await page.getByRole('button', { name: labels.enterPassword, exact: true }).click();
                     await checkAlternatives(page, false);
                     const profile = page.locator('.dg-username-login-summary');
                     const avatar = profile.locator('.dg-username-login-avatar');
@@ -329,7 +368,7 @@ async function checkOtpEditor(page, channel) {
                     await page.locator('.dg-username-login-back').click();
                     await checkAlternatives(page, true);
                     await page.locator('input[name="digits_phone"]').fill('known-user');
-                    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+                    await page.getByRole('button', { name: labels.enterPassword, exact: true }).click();
                     await avatar.locator('img').waitFor();
                     assert.equal(await avatar.locator('svg').isVisible(), false);
                     const layout = await profile.evaluate(element => {
@@ -370,10 +409,11 @@ async function checkOtpEditor(page, channel) {
                     assert.equal(await page.locator('.dg-auth-back').isVisible(), false);
                     assert.equal(await page.locator('.digits-form_tab_container').count(), 1, 'Digits must have only the identity tab after returning');
                     await page.locator('input[name="digits_phone"]').fill('known-user');
-                    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+                    await page.getByRole('button', { name: labels.enterPassword, exact: true }).click();
                     await page.locator('.dg-skip-password:visible').click();
                 }
                 await checkOtpEditor(page, native ? 'sms' : 'email');
+                assert.equal(await page.locator('.digits-form_login > .digits-form_submit-btn').innerText(), labels.verifyCode);
                 await checkAlternatives(page, false);
                 await page.close();
             }
@@ -389,8 +429,12 @@ async function checkOtpEditor(page, channel) {
             await recovery.close();
             const emailGate = await browser.newPage({ viewport: { width, height: 800 } });
             await render(emailGate, direction, labels, false);
-            await checkEmailGate(emailGate);
+            await checkEmailGate(emailGate, labels);
             await emailGate.close();
+            const smsAction = await browser.newPage({ viewport: { width, height: 800 } });
+            await render(smsAction, direction, labels, false);
+            await checkSmsAction(smsAction, labels);
+            await smsAction.close();
         }
         console.log('Passwordless actions, OTP, and first-step-only sign-in options passed in RTL and LTR.');
     } finally {

@@ -8,6 +8,7 @@
     var digitsOtpEditors = new WeakMap();
     var digitsResendTimers = new WeakMap();
     var digitsEmailChecks = new WeakMap();
+    var digitsSmsSelections = new WeakSet();
     var authRecovery = false;
     var authSocket = null;
     var authSocketSequence = 0;
@@ -1315,20 +1316,27 @@
         );
     }
 
-    function digitsOtpTab(password) {
+    function digitsOtpSelector(smsOnly) {
+        return smsOnly
+            ? '.digits-form_otp_selector[data-type="sms_otp"]'
+            : '.digits-form_otp_selector:is([data-type="sms_otp"], [data-type="email_otp"])';
+    }
+
+    function digitsOtpTab(password, smsOnly) {
         var step = password && password.closest('.digits-form_tab_container');
-        if (step && step.querySelector('.digits-form_otp_selector:is([data-type="sms_otp"], [data-type="email_otp"]), input:is([name="sms_otp"], [name="email_otp"])')) {
+        var input = smsOnly ? 'input[name="sms_otp"]' : 'input:is([name="sms_otp"], [name="email_otp"])';
+        if (step && step.querySelector(digitsOtpSelector(smsOnly) + ', ' + input)) {
             return step.querySelector('.digits-form_tab-item[data-value="otp"]');
         }
         return null;
     }
 
-    function startNativeDigitsSms(password, tab) {
+    function startNativeDigitsSms(password, tab, smsOnly) {
         password.value = '';
         password.type = 'password';
         tab.click();
         var step = tab.closest?.('.digits-form_tab_container');
-        var channel = step?.querySelector('.digits-tab_active .digits-form_otp_selector:is([data-type="sms_otp"], [data-type="email_otp"]):not(.auto-click)');
+        var channel = step?.querySelector('.digits-tab_active ' + digitsOtpSelector(smsOnly) + ':not(.auto-click)');
         if (channel && !channel.closest('.digits-tab_active').querySelector('input:is([name="sms_otp"], [name="email_otp"])')) {
             channel.click();
         }
@@ -1357,7 +1365,6 @@
         form.dataset.dgSmsIdentity = 'true';
         if (email) {
             selectDigitsMode('email', false);
-            updateVerificationAction(form);
             submitDigitsSecureForm(form);
             return;
         }
@@ -1367,30 +1374,8 @@
             currentPhone.value = '';
         }
         selectDigitsMode('phone', true);
-        updateVerificationAction(form);
         var help = form.querySelector('.dg-sms-identity-help');
         if (help) { help.hidden = false; }
-    }
-
-    function updateVerificationAction(form) {
-        var primary = form.querySelector('.digits-form_login > .digits-form_submit-btn .digits-form_button-text');
-        if (!primary || !form.classList.contains('digits_form_index_section')) { return; }
-        var label = getLabel('continue', 'Continue');
-        if (form.dataset.dgSmsIdentity === 'true') {
-            var mode = form.closest('.dg-digits-login-shell').dataset.dgIdentity;
-            var identity = digitsIdentityValue(form);
-            if (mode === 'email' && emailDomain(identity)) {
-                label = getLabel('sendEmailCode', 'Send email code');
-            } else if (mode === 'phone') {
-                var number = phonePartsFromValue(identity, form.querySelector('[name="login_digt_countrycode"]')?.value);
-                if (number.valid && number.kind === 'MOBILE') {
-                    label = getLabel('sendSmsCode', 'Send SMS code');
-                }
-            }
-        }
-        if (primary.textContent !== label) {
-            primary.textContent = label;
-        }
     }
 
     function isDigitsIdentityStep(form) {
@@ -1398,26 +1383,48 @@
             && form.dataset.dgUsernameStep !== 'password';
     }
 
-    function canContinueWithDigitsIdentity(form) {
-        if (!isDigitsIdentityStep(form)) { return true; }
+    function digitsIdentityAction(form) {
         var mode = form.closest('.dg-digits-login-shell').dataset.dgIdentity;
         var value = digitsIdentityValue(form);
-        if (mode === 'email') { return digitsEmailChecks.get(form).isVerified(value); }
-        if (mode === 'phone') {
-            return isSupportedDigitsPhone(phonePartsFromValue(value, form.querySelector('[name="login_digt_countrycode"]')?.value));
+        var passwordless = form.dataset.dgSmsIdentity === 'true';
+        if (mode === 'email' && emailDomain(value)) {
+            return { type: passwordless ? 'email' : 'password', enabled: digitsEmailChecks.get(form).isVerified(value) };
         }
-        return mode === 'username' && Boolean(value) && form.dataset.dgSmsIdentity !== 'true';
-    }
-
-    function isSupportedDigitsPhone(number) {
-        return number.valid && (!number.kind || ['MOBILE', 'FIXED_LINE_OR_MOBILE', 'FIXED_LINE'].includes(number.kind));
+        if (mode === 'username' && value && !passwordless) {
+            return { type: 'password', enabled: true };
+        }
+        if (mode === 'phone') {
+            var number = phonePartsFromValue(value, form.querySelector('[name="login_digt_countrycode"]')?.value);
+            if (number.valid && (!number.kind || ['MOBILE', 'FIXED_LINE_OR_MOBILE', 'FIXED_LINE'].includes(number.kind))) {
+                var byCall = number.kind === 'FIXED_LINE' || (number.kind === 'FIXED_LINE_OR_MOBILE' && form.dataset.dgPhoneChannel === 'call');
+                return { type: byCall ? 'call' : 'sms', enabled: true, number: number };
+            }
+        }
+        return { type: 'continue', enabled: false };
     }
 
     function syncDigitsIdentityButton(form) {
         if (!digitsEmailChecks.has(form)) { return; }
         var button = form.querySelector('.digits-form_login > .digits-form_submit-btn');
         if (!button) { return; }
-        if (!canContinueWithDigitsIdentity(form)) {
+        var action = isDigitsIdentityStep(form) ? digitsIdentityAction(form) : null;
+        var label = getLabel('continue', 'Continue');
+        if (action?.type === 'password') {
+            label = getLabel('enterPassword', 'Enter password');
+        } else if (action?.type === 'email') {
+            label = getLabel('sendEmailCode', 'Send email code');
+        } else if (action?.type === 'call') {
+            label = getLabel('getCallCode', 'Get call code');
+        } else if (action?.type === 'sms') {
+            label = action.number.kind === 'MOBILE' ? getLabel('sendSmsCode', 'Send SMS code') : getLabel('continueBySms', 'Continue by SMS');
+        } else if (!action && form.classList.contains('dg-otp-step')) {
+            label = getLabel('verifyCode', 'Verify code');
+        } else if (!action && visibleDigitsPassword(form)) {
+            label = getLabel('login', 'Log in');
+        }
+        var text = button.querySelector('.digits-form_button-text');
+        if (text && text.textContent !== label) { text.textContent = label; }
+        if (action && !action.enabled) {
             button.dataset.dgIdentityBlocked = 'true';
             button.disabled = true;
         } else if (button.dataset.dgIdentityBlocked === 'true') {
@@ -1479,16 +1486,17 @@
             var otp = visibleDigitsOtpInput(form);
             action.hidden = !tab;
 
-            if (form.dataset.dgSmsIdentity === 'true' && !form.classList.contains('digits_form_index_section')) {
+            var smsSelected = !form.classList.contains('digits_form_index_section') && digitsSmsSelections.delete(form);
+            if ((form.dataset.dgSmsIdentity === 'true' || smsSelected) && !form.classList.contains('digits_form_index_section')) {
                 delete form.dataset.dgSmsIdentity;
                 setDigitsIdentityPrompt(form, form.closest('.dg-digits-login-shell')?.dataset.dgIdentity);
                 var help = form.querySelector('.dg-sms-identity-help');
                 if (help) { help.hidden = true; }
-                primary.querySelector('.digits-form_button-text').textContent = getLabel('continue', 'Continue');
+                if (smsSelected) { tab = digitsOtpTab(password, true); }
                 if (tab) {
-                    startNativeDigitsSms(password, tab);
+                    startNativeDigitsSms(password, tab, smsSelected);
                 } else {
-                    var selector = wrapper.querySelector('.digits-form_tab_body.digits-tab_active .digits-form_otp_selector:is([data-type="sms_otp"], [data-type="email_otp"]):not(.auto-click)');
+                    var selector = wrapper.querySelector('.digits-form_tab_body.digits-tab_active ' + digitsOtpSelector(smsSelected) + ':not(.auto-click)');
                     if (!otp && selector && isVisibleElement(selector)) { selector.click(); }
                 }
             }
@@ -1523,6 +1531,7 @@
         });
         form.addEventListener('click', function (event) {
             if (event.target.closest('.digits_form_back')) {
+                digitsSmsSelections.delete(form);
                 stopDigitsSmsWait(form);
                 if (!form.closest('[data-dg-recovery]')) { authRecovery = false; }
             }
@@ -1647,36 +1656,6 @@
         document.body.appendChild(coreForm);
         markLoading(submit, true, form);
         coreForm.submit();
-        return true;
-    }
-
-    function maybeHandleDigitsUsernameSubmit(form) {
-        if (!form || !form.closest('.dg-digits-login-shell')) {
-            return false;
-        }
-
-        if (form.dataset.dgUsernameStep === 'password') {
-            return submitDigitsUsernameLogin(form);
-        }
-
-        if (form.dataset.dgSmsIdentity === 'true' || !form.classList.contains('digits_form_index_section')) {
-            return false;
-        }
-
-        var value = digitsIdentityValue(form);
-        if (!value || classifyIdentity(value) === 'phone') {
-            return false;
-        }
-
-        if (classifyIdentity(value) === 'email' && !emailDomain(value)) {
-            var email = form.querySelector('[name="digits_email"]');
-            if (email) {
-                showDigitsInlineMessage(form, isPersianLocale() ? 'نشانی ایمیل معتبر وارد کنید.' : 'Enter a valid email address.', 'warning');
-                email.focus({ preventScroll: true });
-                return true;
-            }
-        }
-        showDigitsUsernamePasswordStep(form, value);
         return true;
     }
 
@@ -2039,6 +2018,8 @@
             return;
         }
         form.dataset.dgRegistrationOtp = 'true';
+        var buttonText = form.querySelector('.digits-form_submit-btn .digits-form_button-text');
+        var initialLabel = buttonText?.textContent;
         function update() {
             var otp = visibleDigitsOtpInput(form);
             if (otp) {
@@ -2048,6 +2029,8 @@
             if (form.classList.contains('dg-otp-step') !== Boolean(otp)) {
                 form.classList.toggle('dg-otp-step', Boolean(otp));
             }
+            var label = otp ? getLabel('verifyCode', 'Verify code') : initialLabel;
+            if (buttonText && buttonText.textContent !== label) { buttonText.textContent = label; }
             updateDigitsResend(form);
         }
         var observer = new MutationObserver(update);
@@ -2465,7 +2448,9 @@
     }
 
     function submitDigitsSecureForm(form) {
-        if (!canContinueWithDigitsIdentity(form)) {
+        var identityAction = isDigitsIdentityStep(form) ? digitsIdentityAction(form) : null;
+        if (identityAction) { digitsSmsSelections.delete(form); }
+        if (identityAction && !identityAction.enabled) {
             syncDigitsIdentityButton(form);
             return;
         }
@@ -2491,19 +2476,11 @@
             showDigitsInlineMessage(form, getLabel('invalidEmail', 'Enter a valid email address.'), 'warning');
             return;
         }
-        if (form.matches('form.digloginpage.digits_form_index_section') && mode === 'phone') {
-            var country = form.querySelector('[name="login_digt_countrycode"]')?.value;
-            var number = phonePartsFromValue(digitsIdentityValue(form), country);
-            if (!isSupportedDigitsPhone(number)) {
-                showDigitsInlineMessage(form, getLabel('invalidPhone', 'Enter a valid phone number with its area code.'), 'warning');
-                return;
+        if (identityAction?.type === 'call') {
+            if (!window.DigitalogicCallLogin?.start(identityAction.number.e164)) {
+                showDigitsInlineMessage(form, getLabel('callUnavailable', 'Call verification is temporarily unavailable.'), 'warning');
             }
-            if (number.kind === 'FIXED_LINE' || (number.kind === 'FIXED_LINE_OR_MOBILE' && form.dataset.dgPhoneChannel === 'call')) {
-                if (!window.DigitalogicCallLogin?.start(number.e164)) {
-                    showDigitsInlineMessage(form, getLabel('callUnavailable', 'Call verification is temporarily unavailable.'), 'warning');
-                }
-                return;
-            }
+            return;
         }
 
         var password = form.matches('form.digloginpage') ? visibleDigitsPassword(form) : null;
@@ -2518,7 +2495,12 @@
             return;
         }
 
-        if (maybeHandleDigitsUsernameSubmit(form)) {
+        if (form.dataset.dgUsernameStep === 'password') {
+            submitDigitsUsernameLogin(form);
+            return;
+        }
+        if (identityAction?.type === 'password') {
+            showDigitsUsernamePasswordStep(form, digitsIdentityValue(form));
             return;
         }
 
@@ -2526,6 +2508,7 @@
             return;
         }
 
+        if (identityAction?.type === 'sms') { digitsSmsSelections.add(form); }
         if (window.jQuery && typeof window.digitsSecureFormSubmit === 'function') {
             try {
                 if (window.digitsSecureFormSubmit(window.jQuery(form)) === false) {
@@ -3058,7 +3041,7 @@
             choice.disabled = true;
             choice.addEventListener('change', function () {
                 login.dataset.dgPhoneChannel = choice.value;
-                updateVerificationAction(login);
+                syncDigitsIdentityButton(login);
             });
             label.append(choice, document.createTextNode(channel === 'sms'
                 ? getLabel('phoneSms', 'Text message') : getLabel('phoneCall', 'Phone call')));
@@ -3074,7 +3057,7 @@
                 if (channels.hidden) { choice.checked = choice.value === 'sms'; }
             });
             if (channels.hidden) { delete login.dataset.dgPhoneChannel; }
-            updateVerificationAction(login);
+            syncDigitsIdentityButton(login);
         }
 
         function syncFrom(input, currentMode) {
@@ -3236,8 +3219,6 @@
             if (pageHeading) { pageHeading.textContent = signInTitle; }
             var help = login.querySelector('.dg-sms-identity-help');
             if (help) { help.hidden = true; }
-            var primary = login.querySelector('.digits-form_login > .digits-form_submit-btn .digits-form_button-text');
-            if (primary) { primary.textContent = getLabel('continue', 'Continue'); }
             selectDigitsMode(classifyIdentity(digitsIdentityValue(login)), true);
             var url = new window.URL(window.location.href);
             url.searchParams.delete('recover');
