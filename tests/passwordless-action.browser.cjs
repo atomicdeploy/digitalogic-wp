@@ -12,13 +12,16 @@ async function checkAction(page, labels, direction) {
     assert.equal(await action.count(), 1);
     const button = action.getByRole('button', { name: labels.skipPassword, exact: true });
     const caption = action.getByText(labels.skipPasswordCaption, { exact: true });
-    assert.equal(await caption.evaluate(element => element.closest('button')?.classList.contains('dg-skip-password')), true);
+    assert.equal(await caption.evaluate(element => element.tagName === 'P' && !element.closest('button')), true);
     assert.equal(await caption.locator('svg.dg-auth-icon--reset').count(), 1);
     assert.equal(await button.getAttribute('aria-describedby'), await caption.getAttribute('id'));
     assert.equal(await page.getByRole('button', { name: labels.skipPasswordCaption, exact: true }).count(), 0);
     assert.equal(await page.getByRole('link', { name: labels.skipPasswordCaption, exact: true }).count(), 0);
 
-    assert.equal(await caption.evaluate(element => element.getBoundingClientRect().top >= element.previousElementSibling.getBoundingClientRect().bottom), true);
+    assert.ok(await caption.evaluate(element => {
+        const button = element.nextElementSibling;
+        return button?.matches('.dg-skip-password') && element.getBoundingClientRect().bottom < button.getBoundingClientRect().top;
+    }), 'The caption must be a separate element visibly above the button');
     await checkIconAndLabel(button, direction);
     return button;
 }
