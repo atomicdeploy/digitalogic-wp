@@ -93,6 +93,9 @@ async function render(page, direction, labels, native, search = '') {
                     <button class="digits-form_show_forgot_password" type="button">${labels.skipPasswordCaption}</button>
                   </div></template>` : ''}
                 </div>
+                <div class="digits_form-init_step_data">
+                  <label class="digits-form_rememberme"><input class="digits_login_remember_me" name="rememberme" value="1" type="checkbox">Remember me</label>
+                </div>
                 <button class="digits-form_submit-btn" type="submit"><span class="digits-form_button-text">Continue</span></button>
                 <button class="digits-form_passwordless_login" type="button">Passkey</button>
                 <div class="digits-social-logins-box">
@@ -100,7 +103,7 @@ async function render(page, direction, labels, native, search = '') {
                   <div class="digits-social-logins"><div id="digits_google_login"><span class="digits-social-text">Google</span></div></div>
                 </div>
               </div>
-            </form><div data-call-unified data-call-available="true" hidden></div></div></div></body></html>`
+            </form><div class="dg-call-unified" data-call-unified data-call-available="true"><div data-call-instructions hidden><a data-call-dial href="tel:+982112345678">Call</a></div></div></div></div></body></html>`
     }));
     await page.goto('https://digitalogic.test/login/' + search);
     await page.evaluate(labels => {
@@ -168,10 +171,21 @@ async function checkEmailGate(page, labels) {
     await page.locator('input[name="dg_phone_channel"][value="call"]').check();
     assert.equal(await primary.innerText(), labels.getCallCode);
     await page.evaluate(() => {
-        window.DigitalogicCallLogin = { start(number) { document.body.dataset.callNumber = number; return true; } };
+        window.DigitalogicCallLogin = { start(number) {
+            document.body.dataset.callNumber = number;
+            document.querySelector('[data-call-instructions]').hidden = false;
+            document.querySelector('.dg-digits-login-shell').classList.add('dg-call-code-active');
+            return true;
+        } };
     });
     await primary.click();
     assert.equal(await page.locator('body').getAttribute('data-call-number'), '+12025550123');
+    await page.locator('[data-call-instructions] input[name="rememberme"]').waitFor();
+    await page.evaluate(() => {
+        document.querySelector('[data-call-instructions]').hidden = true;
+        document.querySelector('.dg-digits-login-shell').classList.remove('dg-call-code-active');
+    });
+    assert.equal(await page.getByRole('checkbox', { name: 'Remember me' }).count(), 0);
     await phone.fill('+982112345678');
     assert.equal(await primary.innerText(), labels.getCallCode);
     await phone.fill('preview@');
@@ -204,13 +218,21 @@ async function checkEmailGate(page, labels) {
 }
 
 async function checkSmsAction(page, labels) {
-    await page.route('https://digitalogic.test/wp-admin/admin-ajax.php', route => route.fulfill({ json: {
-        success: true,
-        data: { html: `<div class="digits-form_tab_container"><div class="digits-form_tab_body digits-tab_active">
+    await page.route('https://digitalogic.test/wp-admin/admin-ajax.php', route => {
+        if (route.request().postData().includes('name="sms_otp"')) {
+            assert.match(route.request().postData(), /name="rememberme"\r\n\r\n1/);
+            return route.fulfill({ json: { success: true, data: { redirect: '/complete' } } });
+        }
+        assert.doesNotMatch(route.request().postData(), /name="rememberme"/);
+        return route.fulfill({ json: {
+            success: true,
+            data: { html: `<div class="digits-form_tab_container"><div class="digits-form_tab_body digits-tab_active">
             <button type="button" class="digits-form_otp_selector" data-type="email_otp">Email</button>
             <button type="button" class="digits-form_otp_selector" data-type="sms_otp">SMS</button>
         </div></div>` }
-    } }));
+        } });
+    });
+    await page.route('https://digitalogic.test/complete', route => route.fulfill({ body: 'Signed in' }));
     await page.evaluate(() => document.addEventListener('click', event => {
         const choice = event.target.closest('.digits-form_otp_selector');
         if (!choice) { return; }
@@ -221,7 +243,11 @@ async function checkSmsAction(page, labels) {
     await page.getByRole('button', { name: labels.sendSmsCode, exact: true }).click();
     await page.locator('.dg-otp-slot input').first().waitFor();
     assert.equal(await page.locator('body').getAttribute('data-selected-channel'), 'sms_otp');
-    assert.equal(await page.getByRole('button', { name: labels.verifyCode, exact: true }).isVisible(), true);
+    await page.getByRole('checkbox', { name: 'Remember me' }).check();
+    await page.locator('.dg-otp-slot input').first().focus();
+    await page.keyboard.insertText('123456');
+    await page.getByRole('button', { name: labels.verifyCode, exact: true }).click();
+    await page.waitForURL('**/complete');
 }
 
 async function checkVerificationLabels(page, labels) {
@@ -350,6 +376,8 @@ async function checkOtpEditor(page, channel) {
                 await render(page, direction, labels, native);
                 await checkAlternatives(page, !native);
                 if (!native) {
+                    const remember = page.getByRole('checkbox', { name: 'Remember me' });
+                    assert.equal(await remember.count(), 0);
                     await checkIdentityPrompt(page, labels.identityPlaceholder);
                     const identity = page.locator('input[name="digits_phone"]');
                     await identity.fill('۰۹۱۲');
@@ -360,12 +388,14 @@ async function checkOtpEditor(page, channel) {
                     await checkIconAndLabel(page.getByRole('button', { name: labels.passkeyLogin, exact: true }), direction);
                     await page.locator('input[name="digits_phone"]').fill('fixture-user');
                     await page.getByRole('button', { name: labels.enterPassword, exact: true }).click();
+                    await page.locator('.dg-username-password-step').getByRole('checkbox', { name: 'Remember me' }).check();
                     await checkAlternatives(page, false);
                     const profile = page.locator('.dg-username-login-summary');
                     const avatar = profile.locator('.dg-username-login-avatar');
                     assert.equal(await avatar.locator('img').count(), 0);
                     assert.equal(await avatar.locator('svg').isVisible(), true);
                     await page.locator('.dg-username-login-back').click();
+                    assert.equal(await remember.count(), 0);
                     await checkAlternatives(page, true);
                     await page.locator('input[name="digits_phone"]').fill('known-user');
                     await page.getByRole('button', { name: labels.enterPassword, exact: true }).click();
@@ -399,6 +429,7 @@ async function checkOtpEditor(page, channel) {
                     assert.equal(await page.locator('body').getAttribute('data-sms-tab-selected'), 'true');
                     assert.equal(await page.locator('input[type="password"]').inputValue(), '');
                 } else {
+                    assert.equal(await page.getByRole('checkbox', { name: 'Remember me' }).count(), 0);
                     assert.equal(await page.locator('form').getAttribute('data-dg-sms-identity'), 'true');
                     assert.equal(await page.locator('input[name="digits_phone"]').evaluate(element => document.activeElement === element), true);
                     await checkIdentityPrompt(page, labels.contactPlaceholder);

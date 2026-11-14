@@ -1162,7 +1162,8 @@ body.login .dg-username-login-submit {
     width: 100%;
 }
 
-body.login .dg-digits-login-shell form.dg-username-step-active .digits-form_rememberme,
+body.login .dg-digits-login-shell .digits-form_rememberme[hidden],
+body.login .dg-digits-login-shell form.digits_form_index_section:not(.dg-username-step-active) .digits-form_rememberme,
 body.login .dg-digits-login-shell form.dg-username-step-active .digits-form_login > .digits-form_submit-btn {
     display: none !important;
 }

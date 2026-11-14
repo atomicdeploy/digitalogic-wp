@@ -569,7 +569,7 @@
             'body.login .dg-digits-login-shell.dg-digits-auto-identity:not([data-dg-identity="phone"]) .digits-form_countrycode{display:none!important;}',
             'body.login .dg-digits-login-shell :is(.digits-form_input_row, .digits-form_input){border-color:var(--dg-border)!important;border-radius:16px!important;color:var(--dg-text)!important;}',
             'body.login .dg-digits-login-shell .digits-form_input_row:not(.digits-form_rememberme,:has(.dg-otp-editor,.dg-password-field)){min-height:58px!important;margin-block:11px!important;padding-inline:14px!important;background:var(--dg-input-bg)!important;}',
-            'body.login .dg-digits-login-shell .digits-form_rememberme{display:flex!important;align-items:center!important;justify-content:flex-start!important;min-height:auto!important;height:auto!important;margin-block:4px 24px!important;padding:0!important;border:0!important;background:transparent!important;overflow:visible!important;}',
+            'body.login .dg-digits-login-shell .digits-form_rememberme:not([hidden]){display:flex!important;align-items:center!important;justify-content:flex-start!important;min-height:auto!important;height:auto!important;margin-block:4px 24px!important;padding:0!important;border:0!important;background:transparent!important;overflow:visible!important;}',
             'body.login .dg-digits-login-shell .digits-form_rememberme :is(.digits-form_input,.dig_opt_mult_con,.dig_opt_mult,label,.dig_input_wrapper,.dig_input_wrapper>div){display:inline-flex!important;align-items:center!important;justify-content:flex-start!important;gap:10px!important;width:auto!important;min-height:0!important;margin:0!important;padding:0!important;border:0!important;background:transparent!important;line-height:1.35!important;}',
             'body.login .dg-digits-login-shell .digits-form_rememberme .dig_input_wrapper::before,body.login .dg-digits-login-shell .digits-form_rememberme .dig_input_wrapper::after,body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::before,body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::after,html[dir="rtl"] body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::before,html[dir="rtl"] body.login .dg-digits-login-shell .digits-form_input_row .digits-field-type_tac .dig_input_wrapper::after{content:none!important;display:none!important;opacity:0!important;visibility:hidden!important;}',
             'body.login .dg-digits-login-shell .digits-form_input input:not(.digits_login_remember_me,.dg-otp-slot input){min-height:48px!important;margin:0!important;border:0!important;background:transparent!important;color:var(--dg-text)!important;box-shadow:none!important;font-family:var(--dg-font)!important;}',
@@ -1479,6 +1479,18 @@
             }
         });
         primary.after(action);
+        var remember = form.querySelector('.digits-form_rememberme');
+        var rememberInput = remember?.querySelector('input[name="rememberme"]');
+        var shell = form.closest('.dg-digits-login-shell');
+
+        function updateRememberMe(finalStep) {
+            if (!rememberInput) { return; }
+            var dial = shell?.querySelector('.dg-call-unified [data-call-instructions]:not([hidden]) [data-call-dial]');
+            var anchor = dial || form.querySelector('.dg-username-password-step:not([hidden]) .dg-username-login-actions') || primary;
+            if (remember.nextElementSibling !== anchor) { anchor.before(remember); }
+            remember.hidden = !dial && !finalStep;
+            if (remember.hidden) { rememberInput.checked = false; }
+        }
 
         function updateVisibility() {
             var password = visibleDigitsPassword(form);
@@ -1511,6 +1523,7 @@
             if (form.classList.contains('dg-otp-step') !== Boolean(otp)) {
                 form.classList.toggle('dg-otp-step', Boolean(otp));
             }
+            updateRememberMe(Boolean(otp || visibleDigitsPassword(form)));
             updateDigitsResend(form);
             syncDigitsIdentityButton(form);
         }
@@ -1524,6 +1537,7 @@
             attributeFilter: ['class', 'style', 'hidden', 'type', 'disabled']
         });
         observer.observe(form, { attributes: true, attributeFilter: ['class'] });
+        if (rememberInput && shell) { observer.observe(shell, { attributes: true, attributeFilter: ['class'] }); }
         form.addEventListener('input', function (event) {
             if (event.target.matches('input:is([name="sms_otp"], [name="email_otp"])')) {
                 stopDigitsSmsWait(form);
@@ -1584,6 +1598,11 @@
 
             step.querySelector('.dg-username-login-back').addEventListener('click', function () {
                 // Digits counts every tab container when handling Back, including hidden ones.
+                var remember = step.querySelector('.digits-form_rememberme');
+                if (remember) {
+                    remember.hidden = true;
+                    form.querySelector('.digits-form_login > .digits-form_submit-btn').before(remember);
+                }
                 step.remove();
                 delete form.dataset.dgUsernameStep;
                 form.classList.remove('dg-username-step-active');
@@ -2164,7 +2183,8 @@
             } else {
                 input.value = wait.code;
             }
-            button.click();
+            // Autofill the code and leave time to choose whether to remember this device.
+            if (!form.querySelector('.digits-form_rememberme input[name="rememberme"]')) { button.click(); }
         }
     }
 
