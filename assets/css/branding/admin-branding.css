@@ -79,6 +79,9 @@ body.wp-admin {
 }
 
 body.login {
+    --dg-reveal-easing: cubic-bezier(0.2, 0.75, 0.25, 1);
+    --dg-reveal-short: 180ms;
+    --dg-reveal-panel: 240ms;
     height: auto !important;
     min-height: 100vh;
     min-height: 100dvh;
@@ -762,6 +765,37 @@ body.login .dg-country-code-control {
     gap: 3px;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+    body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .dg-country-code-control {
+        animation: dg-reveal-fade var(--dg-reveal-short) var(--dg-reveal-easing);
+    }
+
+    @supports (interpolate-size: allow-keywords) {
+        body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phone"] .dg-country-code-control {
+            interpolate-size: allow-keywords;
+            animation-name: dg-prefix-expand;
+        }
+    }
+}
+
+@keyframes dg-reveal-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes dg-prefix-expand {
+    from {
+        inline-size: 0;
+        opacity: 0;
+        clip-path: inset(0 100% 0 0);
+    }
+    to {
+        inline-size: max-content;
+        opacity: 1;
+        clip-path: inset(0);
+    }
+}
+
 body.login .dg-country-flag,
 body.login .dg-country-option-flag {
     display: inline-flex;
@@ -1061,7 +1095,7 @@ body.login .dg-digits-login-shell form.dg-username-step-active .dg-username-pass
     display: inline-flex !important;
 }
 
-body.login .dg-digits-login-shell :is(.digits-form_login_separator, .digits-form_passwordless_login, .digits-form_show_forgot_password, .dg-passwordless-action[hidden]) {
+body.login .dg-digits-login-shell :is(.digits-form_login_separator, .digits-form_passwordless_login:not(.dg-passkey-options > *), .digits-form_show_forgot_password, .dg-passwordless-action[hidden]) {
     display: none !important;
 }
 
@@ -1131,7 +1165,34 @@ body.login .dg-passkey-options summary {
     cursor: pointer;
 }
 
-body.login .dg-digits-login-shell .dg-passkey-options[open] > .digits-form_passwordless_login,
+@media (prefers-reduced-motion: no-preference) {
+    @supports (interpolate-size: allow-keywords) and selector(details::details-content) {
+        body.login .dg-passkey-options::details-content {
+            interpolate-size: allow-keywords;
+            contain: layout;
+            overflow: clip;
+            overflow-clip-margin: 4px;
+            block-size: 0;
+            opacity: 0;
+            transition: block-size var(--dg-reveal-panel) var(--dg-reveal-easing),
+                opacity var(--dg-reveal-short) ease-out,
+                content-visibility var(--dg-reveal-panel) allow-discrete;
+        }
+
+        body.login .dg-passkey-options[open]::details-content {
+            block-size: auto;
+            opacity: 1;
+        }
+    }
+
+    @supports not ((interpolate-size: allow-keywords) and selector(details::details-content)) {
+        body.login .dg-passkey-options[open] > .digits-form_passwordless_login {
+            animation: dg-reveal-fade var(--dg-reveal-short) var(--dg-reveal-easing);
+        }
+    }
+}
+
+body.login .dg-digits-login-shell .dg-passkey-options > .digits-form_passwordless_login,
 body.login .dg-digits-login-shell .dg-passkey-options .digitalogic-call-toggle {
     display: block !important;
     box-sizing: border-box;
@@ -1852,7 +1913,7 @@ body.login .dg-digits-register-shell > .digits-form_container {
 body.login .dg-passkey-options summary,
 body.login .dg-account-hint summary,
 body.login .dg-account-hint button,
-body.login .dg-digits-login-shell .dg-passkey-options[open] > .digits-form_passwordless_login,
+body.login .dg-digits-login-shell .dg-passkey-options > .digits-form_passwordless_login,
 body.login .dg-digits-login-shell .dg-passkey-options .digitalogic-call-toggle {
     display: flex !important;
     align-items: center;
@@ -1866,7 +1927,7 @@ body.login .digits-social-logins-box .dg-passkey-options {
     align-self: stretch;
     margin: 0;
 }
-body.login .dg-digits-login-shell .dg-passkey-options[open] > .digits-form_passwordless_login {
+body.login .dg-digits-login-shell .dg-passkey-options > .digits-form_passwordless_login {
     border: 1px solid var(--dg-border) !important;
     background: var(--dg-panel-soft) !important;
     color: var(--dg-text) !important;
@@ -2141,7 +2202,7 @@ body.login .dg-recovery-dialog .dg-recovery-cancel {
 }
 body.login .dg-passkey-options summary::-webkit-details-marker,
 body.login .dg-account-hint summary::-webkit-details-marker { display: none; }
-body.login .dg-digits-login-shell .dg-passkey-options[open] > .digits-form_passwordless_login,
+body.login .dg-digits-login-shell .dg-passkey-options > .digits-form_passwordless_login,
 body.login .dg-digits-login-shell .dg-passkey-options .digitalogic-call-toggle {
     min-block-size: 52px !important;
     block-size: 52px !important;
