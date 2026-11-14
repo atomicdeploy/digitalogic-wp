@@ -138,12 +138,19 @@ async function checkVerificationLabels(page, labels) {
     ]) {
         await field.fill(value);
         assert.equal(await primary.innerText(), expected, value || '(empty identity)');
+        await checkIdentityPrompt(page, labels.contactPlaceholder);
     }
     await phone.fill('09120000000');
     assert.equal(await primary.innerText(), labels.sendSmsCode);
     await page.locator('.dg-country-trigger').click();
     await page.locator('.dg-country-option[data-code="+1"]').click();
     assert.equal(await primary.innerText(), 'Continue', 'The previous SMS label must clear on country changes');
+}
+
+async function checkIdentityPrompt(page, expected) {
+    const visibleIdentity = page.locator('input:is([name="digits_phone"], [name="digits_email"]):visible');
+    assert.equal(await visibleIdentity.getAttribute('placeholder'), expected);
+    assert.equal(await visibleIdentity.getAttribute('aria-label'), expected);
 }
 
 async function checkAlternatives(page, visible) {
@@ -178,6 +185,8 @@ async function checkOtpEditor(page, channel) {
         ]) {
             const labels = {
                 skipPassword, skipPasswordCaption,
+                identityPlaceholder: direction === 'rtl' ? 'نام کاربری، ایمیل یا شماره تلفن' : 'Username, email, or phone number',
+                contactPlaceholder: direction === 'rtl' ? 'ایمیل یا شماره تلفن' : 'Email address or phone number',
                 passkeyLogin: direction === 'rtl' ? 'ورود با کلید عبور' : 'Sign in with a passkey',
                 sendSmsCode: direction === 'rtl' ? 'ارسال کد پیامکی' : 'Send SMS code',
                 sendEmailCode: direction === 'rtl' ? 'ارسال کد به ایمیل' : 'Send email code'
@@ -187,6 +196,7 @@ async function checkOtpEditor(page, channel) {
                 await render(page, direction, labels, native);
                 await checkAlternatives(page, !native);
                 if (!native) {
+                    await checkIdentityPrompt(page, labels.identityPlaceholder);
                     await page.locator('.dg-passkey-options summary').click();
                     await checkIconAndLabel(page.getByRole('button', { name: labels.passkeyLogin, exact: true }), direction);
                     await page.locator('input[name="digits_phone"]').fill('fixture-user');
@@ -242,9 +252,11 @@ async function checkOtpEditor(page, channel) {
                 } else {
                     assert.equal(await page.locator('form').getAttribute('data-dg-sms-identity'), 'true');
                     assert.equal(await page.locator('input[name="digits_phone"]').evaluate(element => document.activeElement === element), true);
+                    await checkIdentityPrompt(page, labels.contactPlaceholder);
                     await checkVerificationLabels(page, labels);
                     await page.locator('.dg-auth-back').click();
                     await checkAlternatives(page, true);
+                    await checkIdentityPrompt(page, labels.identityPlaceholder);
                     assert.equal(await page.locator('.dg-auth-back').isVisible(), false);
                     assert.equal(await page.locator('.digits-form_tab_container').count(), 1, 'Digits must have only the identity tab after returning');
                     await page.locator('input[name="digits_phone"]').fill('known-user');
@@ -258,8 +270,10 @@ async function checkOtpEditor(page, channel) {
             const recovery = await browser.newPage({ viewport: { width, height: 800 } });
             await render(recovery, direction, labels, false, '?recover=1');
             await checkAlternatives(recovery, false);
+            await checkIdentityPrompt(recovery, labels.contactPlaceholder);
             await recovery.locator('.dg-auth-back').click();
             await checkAlternatives(recovery, true);
+            await checkIdentityPrompt(recovery, labels.identityPlaceholder);
             assert.equal(await recovery.locator('.dg-auth-back').isVisible(), false);
             assert.equal(new URL(recovery.url()).searchParams.has('recover'), false);
             await recovery.close();
