@@ -1428,7 +1428,7 @@ body.login .dg-otp-slot:has(input:focus:placeholder-shown)::after {
 body.login [data-dg-otp-cursor="bar"] .dg-otp-slot:has(input:focus:placeholder-shown)::after {
     inset-block-end: auto;
     inset-block-start: 50%;
-    inline-size: 3px;
+    inline-size: 2px;
     block-size: 18px;
     border: 0;
     border-radius: 2px;
