@@ -1078,6 +1078,14 @@ body.login .dg-recovery-dialog .dg-password-field > input.dg-password-input {
     font-variant-numeric: tabular-nums;
 }
 
+body.login .dg-password-field > input.dg-password-input::placeholder {
+    font-family: var(--dg-placeholder-font, var(--dg-font)) !important;
+    color: var(--dg-text-soft) !important;
+    opacity: 1;
+    font-variant-numeric: normal !important;
+    letter-spacing: 0 !important;
+}
+
 body.login .dg-password-field > .dg-password-toggle {
     appearance: none;
     box-sizing: border-box;
@@ -3172,13 +3180,6 @@ body.login #rememberme:checked {
     background-size: 100% 100% !important;
     box-shadow: 0 10px 24px color-mix(in srgb, var(--dg-accent-strong) 28%, transparent);
     transform: scale(1.06);
-}
-
-body.login input.dg-password-input::placeholder {
-    font-family: var(--dg-placeholder-font, var(--dg-font)) !important;
-    color: color-mix(in srgb, var(--dg-text-soft) 58%, transparent) !important;
-    font-variant-numeric: normal !important;
-    letter-spacing: 0 !important;
 }
 
 body.login .dg-digits-login-shell .digits-form_rememberme .dig_input_wrapper > div {
