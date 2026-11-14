@@ -52,3 +52,12 @@ The website guard rejects normalized duplicates before WordPress's actual user I
 - Deployment on 2026-11-06 used a checked 21-file manifest, archive SHA-256 `a846514bee84ee4c4f292b91587a3460e931af4aa8507d8ac5aa4fc88d561ed0`, with rollback backup `/var/backups/digitalogic-account-merge.mwqahho4`. All affected production tables passed the InnoDB preflight. Public bootstrap returned JSON with `account_merge: true`; unauthenticated plan and recovery returned 401. Deployment itself changed no customer identity and sent no OTP.
 
 Tracked with [backend issue 437](https://github.com/atomicdeploy/digitalogic-wp/issues/437), [GitHub PR 439](https://github.com/atomicdeploy/digitalogic-wp/pull/439), [Gitea PR 1](https://git.digitalogic.ir/root/digitalogic-wp/pulls/1) and [native app issue 1](https://github.com/atomicdeploy/digitalogic-app/issues/1).
+
+
+## Provider cart defaults — 2026-11-14
+
+A live review exposed a false migration blocker: Woo Deposits adds `is_deposit:false` and `payment_plan:0` to ordinary restored cart lines, and Tier Pricing adds a derived `tiered_pricing_data:{total_item_quantity:int}` cache. These exact default shapes are now accepted. The merge never copies a plugin candidate price; existing Woo cart hooks recompute the quantity cache and current pricing. Active deposits, nonzero plans, unknown fields and unrecognized cache shapes still block. The receiving cart is checked too when source quantities will move. If canonical hooks introduce an active or unknown option during the mutation, the transaction rolls back before retiring the source cart.
+
+The exact one-file runtime passed21 focused tests/164 assertions and66 isolated provider-aware checks plus19 installed-core website guard checks. Actual Tier Pricing9.0.1 and Woo Deposits2.4.5 hooks ran. Source quantity1 plus target2 became3; the provider candidate80 remained subject to Digitalogic's authoritative Patris price100, producing total300. Three injected option changes during total calculation rolled back carts and identities. No production order, SMS, account change or outbound network connection occurred in the fixture.
+
+The targeted deployment retained unrelated live patches. Read-only production inventory confirms the default metadata no longer blocks migration and the customer's existing cart remains unchanged. Fresh Google and phone proof remains mandatory; deployment itself does not consolidate an account or renew a proof.

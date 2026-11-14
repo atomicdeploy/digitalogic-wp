@@ -165,8 +165,8 @@ final class MobileAccountMerge {
 		if ( ! is_array( $favorite_rows ) || '' !== $wpdb->last_error ) {
 			throw new \RuntimeException( 'Wishlist inventory unavailable.' );
 		}
-		$favorite_ids  = array_map( 'intval', $favorite_rows );
-		$count_sql     = static function ( $query ) use ( $wpdb ): int {
+		$favorite_ids = array_map( 'intval', $favorite_rows );
+		$count_sql    = static function ( $query ) use ( $wpdb ): int {
 			// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Every caller passes a closed, prepared provider count query.
 			$value = $wpdb->get_var( $query );
 			if ( null === $value || '' !== $wpdb->last_error ) {
@@ -174,23 +174,23 @@ final class MobileAccountMerge {
 			}
 			return (int) $value;
 		};
-		$count         = static function ( string $table, string $column, int $owner ) use ( $wpdb ): int {
+		$count        = static function ( string $table, string $column, int $owner ) use ( $wpdb ): int {
 			$value = $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM %i WHERE %i=%d', $table, $column, $owner ) );
 			if ( null === $value || '' !== $wpdb->last_error ) {
 				throw new \RuntimeException( 'Provider inventory unavailable.' );
 			}
 			return (int) $value;
 		};
-		$counts        = array(
+		$counts       = array(
 			'orders'    => $count( $prefix . 'wc_orders', 'customer_id', $id ),
 			'favorites' => count( $favorite_ids ),
 			'requests'  => $count_sql( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_author=%d AND post_type='digitalogic_request'", $id ) ),
 			'tickets'   => $count_sql( $wpdb->prepare( 'SELECT COUNT(*) FROM %i t JOIN %i p ON p.id=t.customer_id WHERE p.user_id=%d', $prefix . 'fs_tickets', $prefix . 'fs_persons', $id ) ),
 			'drafts'    => $count( $prefix . 'digitalogic_mobile_drafts', 'user_id', $id ),
 		);
-		$pending       = $count_sql( $wpdb->prepare( "SELECT COUNT(*) FROM %i WHERE user_id=%d AND state IN ('validating','creating','payment_pending','uncertain')", MobileCheckoutStore::table( 'checkout_operations' ), $id ) );
-		$pending      += $count_sql( $wpdb->prepare( "SELECT COUNT(*) FROM %i WHERE user_id=%d AND state NOT IN ('accepted','rejected')", MobileMessageStore::table(), $id ) );
-		$unsupported   = array(
+		$pending      = $count_sql( $wpdb->prepare( "SELECT COUNT(*) FROM %i WHERE user_id=%d AND state IN ('validating','creating','payment_pending','uncertain')", MobileCheckoutStore::table( 'checkout_operations' ), $id ) );
+		$pending     += $count_sql( $wpdb->prepare( "SELECT COUNT(*) FROM %i WHERE user_id=%d AND state NOT IN ('accepted','rejected')", MobileMessageStore::table(), $id ) );
+		$unsupported  = array(
 			'orders'                 => $counts['orders'],
 			'legacy_orders'          => $count_sql( $wpdb->prepare( "SELECT COUNT(DISTINCT pm.post_id) FROM {$wpdb->postmeta} pm JOIN {$wpdb->posts} p ON p.ID=pm.post_id WHERE pm.meta_key='_customer_user' AND pm.meta_value=%s AND p.post_type IN ('shop_order','shop_order_refund')", (string) $id ) ),
 			'service_requests'       => $counts['requests'],
@@ -204,13 +204,10 @@ final class MobileAccountMerge {
 			'comments'               => $count( $wpdb->comments, 'user_id', $id ),
 			'other_authored_content' => $count_sql( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_author=%d AND post_type<>'wd_abandoned_cart'", $id ) ),
 		);
-		$woo_session   = new MobileWooSession( $cart );
-		$raw_cart      = (array) $woo_session->get( 'cart', array() );
-		$standard_keys = array( 'key', 'product_id', 'variation_id', 'variation', 'quantity', 'data_hash', 'line_tax_data', 'line_subtotal', 'line_subtotal_tax', 'line_total', 'line_tax' );
-		foreach ( $raw_cart as $line ) {
-			if ( ! is_array( $line ) || array_diff( array_keys( $line ), $standard_keys ) ) {
-				$unsupported['custom_cart_options'] = 1;
-			}
+		$woo_session  = new MobileWooSession( $cart );
+		$raw_cart     = (array) $woo_session->get( 'cart', array() );
+		if ( self::hasUnsupportedCartOptions( $raw_cart ) ) {
+			$unsupported['custom_cart_options'] = 1;
 		}
 		$coupons                     = (array) $woo_session->get( 'applied_coupons', array() );
 		$unsupported['cart_coupons'] = count( $coupons );
@@ -237,6 +234,48 @@ final class MobileAccountMerge {
 			'pending'              => $pending,
 			'unsupported_history'  => array_filter( $unsupported ),
 		);
+	}
+
+	/**
+	 * Accept only audited provider defaults and derived quantity cache metadata.
+	 *
+	 * Woo Deposits inserts false/zero for every ordinary session line. Tier Pricing
+	 * replaces its quantity cache during canonical calculate_totals; it is never an
+	 * input price or a selected customer option. Active plans and unknown fields
+	 * still require a provider-specific migration before any identity is changed.
+	 *
+	 * @param array $raw Canonical persisted Woo cart lines, not client input.
+	 * @return bool Whether quantity-only consolidation would lose a selected option.
+	 */
+	public static function hasUnsupportedCartOptions( array $raw ): bool {
+		$standard = array( 'key', 'product_id', 'variation_id', 'variation', 'quantity', 'data_hash', 'line_tax_data', 'line_subtotal', 'line_subtotal_tax', 'line_total', 'line_tax' );
+		$derived  = array( 'is_deposit', 'payment_plan', 'tiered_pricing_data' );
+		foreach ( $raw as $line ) {
+			if ( ! is_array( $line ) || array_diff( array_keys( $line ), array_merge( $standard, $derived ) ) ) {
+				return true;
+			}
+			if ( ( array_key_exists( 'is_deposit', $line ) && false !== $line['is_deposit'] ) || ( array_key_exists( 'payment_plan', $line ) && 0 !== $line['payment_plan'] ) ) {
+				return true;
+			}
+			if ( array_key_exists( 'tiered_pricing_data', $line ) ) {
+				$tier = $line['tiered_pricing_data'];
+				if ( ! is_array( $tier ) || array_keys( $tier ) !== array( 'total_item_quantity' ) || ! is_int( $tier['total_item_quantity'] ) || $tier['total_item_quantity'] < 1 ) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Keep selected target cart options intact when source quantities would join them.
+	 *
+	 * @param array $source Original owner inventory.
+	 * @param array $target Surviving owner inventory.
+	 * @return bool Whether a provider-specific migration is required.
+	 */
+	private static function migrationUnsupported( array $source, array $target ): bool {
+		return ! empty( $source['unsupported_history'] ) || ( ! empty( $source['counts']['cart_lines'] ) && ! empty( $target['unsupported_history']['custom_cart_options'] ) );
 	}
 
 	/**
@@ -319,7 +358,7 @@ final class MobileAccountMerge {
 		if ( $source['pending'] || $target['pending'] ) {
 			$result['blockers'][] = 'unresolved_operation';
 		}
-		if ( $source['unsupported_history'] ) {
+		if ( self::migrationUnsupported( $source, $target ) ) {
 			$result['blockers'][] = 'provider_migration_required';
 		}
 		$result['status'] = $result['blockers'] ? 'blocked' : 'review_required';
@@ -399,7 +438,7 @@ final class MobileAccountMerge {
 	 */
 	private static function applyCanonical( array $context, array $source, array $target, string $operation_key ): void {
 		global $wpdb;
-		if ( $source['unsupported_history'] || $source['pending'] || $target['pending'] ) {
+		if ( self::migrationUnsupported( $source, $target ) || $source['pending'] || $target['pending'] ) {
 			throw new \RuntimeException( 'provider_migration_required' );
 		}
 		$source_id   = $context['source'];
@@ -422,6 +461,10 @@ final class MobileAccountMerge {
 			$written = MobileWooCart::mutate( $target_cart, $changes );
 			if ( $written !== $changes ) {
 				throw new \RuntimeException( 'merged_cart_readback_failed' );
+			}
+			$merged_session = new MobileWooSession( $target_cart );
+			if ( self::hasUnsupportedCartOptions( (array) $merged_session->get( 'cart', array() ) ) ) {
+				throw new \RuntimeException( 'merged_cart_options_changed' );
 			}
 			$remove = array_map(
 				static fn( $line ) => array(

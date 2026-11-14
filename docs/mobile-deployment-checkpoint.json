@@ -1,5 +1,5 @@
 {
-  "observed_at_utc": "2026-11-14T04:38:07.737669+00:00",
+  "observed_at_utc": "2026-11-14T09:21:11.186623+00:00",
   "source_branch": "feat/mobile-storefront-api",
   "deployment": "targeted files; no full-plugin replacement",
   "schemas": {
@@ -90,7 +90,7 @@
       "matches_working_source": true
     },
     "laravel/app/Services/MobileAccountMerge.php": {
-      "deployed_sha256": "0a233201427754171c9fb2a1d336f965aaf25f4f405a2984435bf7fc4359d80f",
+      "deployed_sha256": "84be211455d014e9d1d9d1429ef0dace9e29e9355f632eabe3373ecb0c2aa7db",
       "matches_working_source": true
     },
     "laravel/app/Services/MobileGoogleContinuation.php": {
@@ -222,5 +222,24 @@
     "setting_rows": 7,
     "setting_sha256": "96303fe21b903eb396d1e7aa8289d86ca55fee8d45c5a2f7f600419219ee4a00",
     "remaining": "No exclusive board/accessory classifier was inferred from mixed canonical taxonomy. Explicit customer sorts remain authoritative; rendered website synonym behavior is not claimed from option readback alone."
+  },
+  "merge_cart_metadata": {
+    "archive_sha256": "186962f4a1f766338da268ad109ddc0a88d1d5453bad67c1ab563d11b21f1537",
+    "backup": "/var/backups/digitalogic-merge-cart-provider.l4w2m22k",
+    "focused_tests": 21,
+    "assertions": 164,
+    "isolated_provider_checks": 66,
+    "nested_website_guard_checks": 19,
+    "evidence_sha256": "121b80a58cb76a8f0520150dac5fd2cecb7d3e65b9c790334e70332693afe48e",
+    "providers": {
+      "tier_pricing_table": "9.0.1",
+      "woocommerce_deposits": "2.4.5"
+    },
+    "canonical_pricing_guard_preserved": true,
+    "active_unknown_options_rejected": true,
+    "during_mutation_option_change_rolled_back": true,
+    "live_default_metadata_no_longer_blocked": true,
+    "live_cart_baseline_unchanged": true,
+    "customer_identity_changed_by_deploy": false
   }
 }
