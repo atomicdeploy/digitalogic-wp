@@ -7,6 +7,7 @@
     var digitsSmsWaits = new WeakMap();
     var digitsOtpEditors = new WeakMap();
     var digitsResendTimers = new WeakMap();
+    var digitsEmailChecks = new WeakMap();
     var authRecovery = false;
     var authSocket = null;
     var authSocketSequence = 0;
@@ -1019,7 +1020,7 @@
         });
 
         document.querySelectorAll('[data-dg-disabled-by-branding="true"]').forEach(function (button) {
-            button.disabled = false;
+            button.disabled = button.dataset.dgIdentityBlocked === 'true';
             delete button.dataset.dgDisabledByBranding;
         });
     }
@@ -1069,7 +1070,7 @@
             button.classList.remove('is-loading');
             button.removeAttribute('aria-busy');
             if (button.matches('#wp-submit') || button.dataset.dgDisabledByBranding === 'true') {
-                button.disabled = false;
+                button.disabled = button.dataset.dgIdentityBlocked === 'true';
             }
         });
     }
@@ -1392,6 +1393,43 @@
         }
     }
 
+    function isDigitsIdentityStep(form) {
+        return digitsEmailChecks.has(form) && form.classList.contains('digits_form_index_section')
+            && form.dataset.dgUsernameStep !== 'password';
+    }
+
+    function canContinueWithDigitsIdentity(form) {
+        if (!isDigitsIdentityStep(form)) { return true; }
+        var mode = form.closest('.dg-digits-login-shell').dataset.dgIdentity;
+        var value = digitsIdentityValue(form);
+        if (mode === 'email') { return digitsEmailChecks.get(form).isVerified(value); }
+        if (mode === 'phone') {
+            return isSupportedDigitsPhone(phonePartsFromValue(value, form.querySelector('[name="login_digt_countrycode"]')?.value));
+        }
+        return mode === 'username' && Boolean(value) && form.dataset.dgSmsIdentity !== 'true';
+    }
+
+    function isSupportedDigitsPhone(number) {
+        return number.valid && (!number.kind || ['MOBILE', 'FIXED_LINE_OR_MOBILE', 'FIXED_LINE'].includes(number.kind));
+    }
+
+    function syncDigitsIdentityButton(form) {
+        if (!digitsEmailChecks.has(form)) { return; }
+        var button = form.querySelector('.digits-form_login > .digits-form_submit-btn');
+        if (!button) { return; }
+        if (!canContinueWithDigitsIdentity(form)) {
+            button.dataset.dgIdentityBlocked = 'true';
+            button.disabled = true;
+        } else if (button.dataset.dgIdentityBlocked === 'true') {
+            delete button.dataset.dgIdentityBlocked;
+            if (form.dataset.dgPending === 'true') {
+                button.dataset.dgDisabledByBranding = 'true';
+            } else {
+                button.disabled = false;
+            }
+        }
+    }
+
     function createPasswordlessAction(captionId, onClick) {
         var action = document.createElement('div');
         action.className = 'dg-passwordless-action';
@@ -1466,15 +1504,18 @@
                 form.classList.toggle('dg-otp-step', Boolean(otp));
             }
             updateDigitsResend(form);
+            syncDigitsIdentityButton(form);
         }
 
         updateVisibility();
-        new MutationObserver(updateVisibility).observe(wrapper, {
+        var observer = new MutationObserver(updateVisibility);
+        observer.observe(wrapper, {
             childList: true,
             subtree: true,
             attributes: true,
             attributeFilter: ['class', 'style', 'hidden', 'type', 'disabled']
         });
+        observer.observe(form, { attributes: true, attributeFilter: ['class'] });
         form.addEventListener('input', function (event) {
             if (event.target.matches('input:is([name="sms_otp"], [name="email_otp"])')) {
                 stopDigitsSmsWait(form);
@@ -2424,6 +2465,10 @@
     }
 
     function submitDigitsSecureForm(form) {
+        if (!canContinueWithDigitsIdentity(form)) {
+            syncDigitsIdentityButton(form);
+            return;
+        }
         var button = digitsSubmitButton(form);
         var otp = visibleDigitsOtpInput(form);
 
@@ -2449,7 +2494,7 @@
         if (form.matches('form.digloginpage.digits_form_index_section') && mode === 'phone') {
             var country = form.querySelector('[name="login_digt_countrycode"]')?.value;
             var number = phonePartsFromValue(digitsIdentityValue(form), country);
-            if (!number.valid) {
+            if (!isSupportedDigitsPhone(number)) {
                 showDigitsInlineMessage(form, getLabel('invalidPhone', 'Enter a valid phone number with its area code.'), 'warning');
                 return;
             }
@@ -2457,10 +2502,6 @@
                 if (!window.DigitalogicCallLogin?.start(number.e164)) {
                     showDigitsInlineMessage(form, getLabel('callUnavailable', 'Call verification is temporarily unavailable.'), 'warning');
                 }
-                return;
-            }
-            if (number.kind && !['MOBILE', 'FIXED_LINE_OR_MOBILE'].includes(number.kind)) {
-                showDigitsInlineMessage(form, getLabel('invalidPhone', 'Enter a valid phone number with its area code.'), 'warning');
                 return;
             }
         }
@@ -2651,7 +2692,10 @@
 
         shell.dataset.dgIdentity = nextMode;
         var form = phoneInput?.form || emailInput?.form;
-        if (form) { setDigitsIdentityPrompt(form, nextMode); }
+        if (form) {
+            setDigitsIdentityPrompt(form, nextMode);
+            syncDigitsIdentityButton(form);
+        }
         [phoneInput, emailInput].filter(Boolean).forEach(function (input) {
             var holder = input.closest('.digits-form_input');
             if (!holder) { return; }
@@ -2668,9 +2712,8 @@
     }
 
     function bindEmailDomainFeedback(input) {
-        var row = input.closest('.digits-form_input_row');
-        if (!row || !config.emailDomainNonce) { return; }
-
+        var form = input.form;
+        var row = input.closest('.digits-form_input_row') || input;
         var status = document.createElement('p');
         status.id = 'dg-email-domain-status';
         status.className = 'dg-email-domain-status';
@@ -2683,13 +2726,16 @@
             valid: persian ? 'دامنهٔ ایمیل معتبر است.' : 'The email domain accepts mail.',
             invalid: persian ? 'برای این دامنه سرویس ایمیل پیدا نشد. نشانی را بررسی کنید.' : 'No mail service was found for this domain. Check the address.',
             format: persian ? 'نشانی ایمیل معتبر وارد کنید.' : 'Enter a valid email address.',
-            unavailable: persian ? 'بررسی دامنه فعلاً ممکن نیست. می‌توانید ادامه دهید.' : 'The domain check is temporarily unavailable. You can continue.'
+            unavailable: persian ? 'بررسی دامنه فعلاً ممکن نیست.' : 'The domain check is temporarily unavailable.'
         };
         var cache = new Map();
         var timer;
         var pending;
+        var failedDomain;
 
         function render(state) {
+            input.setAttribute('aria-invalid', String(state === 'invalid' || state === 'format'));
+            syncDigitsIdentityButton(form);
             if (status.dataset.state === state) { return; }
             status.dataset.state = state;
             status.replaceChildren();
@@ -2698,6 +2744,18 @@
                 text.textContent = labels[state];
                 status.appendChild(text);
                 putAuthIcon(status, state === 'valid' ? 'check' : (state === 'checking' ? 'email' : 'info'));
+                if (state === 'unavailable') {
+                    var retry = document.createElement('button');
+                    retry.type = 'button';
+                    retry.className = 'dg-email-domain-retry';
+                    retry.textContent = persian ? 'تلاش دوباره' : 'Try again';
+                    retry.addEventListener('click', function () {
+                        failedDomain = null;
+                        input.focus();
+                        update(true);
+                    });
+                    status.appendChild(retry);
+                }
             }
         }
 
@@ -2719,21 +2777,27 @@
                 });
                 var result = response.ok ? await response.json() : null;
                 if (!result?.success || typeof result.data?.valid !== 'boolean') { throw new Error('Email domain check failed'); }
-                if (cache.size >= 24) { cache.clear(); }
-                cache.set(domain, result.data.valid);
-                if (pending === request) { render(result.data.valid ? 'valid' : 'invalid'); }
+                if (pending === request && !input.disabled && emailDomain(input.value) === domain) {
+                    if (cache.size >= 24) { cache.clear(); }
+                    cache.set(domain, result.data.valid);
+                    render(result.data.valid ? 'valid' : 'invalid');
+                }
             } catch (error) {
-                if (pending === request) { render('unavailable'); }
+                if (pending === request && !input.disabled && emailDomain(input.value) === domain) {
+                    failedDomain = domain;
+                    render('unavailable');
+                }
             } finally {
                 window.clearTimeout(timeout);
                 if (pending === request) { pending = null; }
             }
         }
 
-        return function update(onBlur) {
+        function update(onBlur) {
             var value = input.disabled ? '' : input.value;
             var domain = emailDomain(value);
             window.clearTimeout(timer);
+            if (failedDomain !== domain) { failedDomain = null; }
             if (pending && pending.domain !== domain) {
                 pending.controller.abort();
                 pending = null;
@@ -2746,6 +2810,10 @@
                 render(cache.get(domain) ? 'valid' : 'invalid');
                 return;
             }
+            if (failedDomain === domain || !config.emailDomainNonce) {
+                render('unavailable');
+                return;
+            }
             if (pending) { return; }
             render('checking');
             if (onBlur) {
@@ -2753,7 +2821,12 @@
             } else {
                 timer = window.setTimeout(function () { void check(domain); }, 300);
             }
-        };
+        }
+
+        digitsEmailChecks.set(form, {
+            isVerified: function (value) { return cache.get(emailDomain(value)) === true; }
+        });
+        return update;
     }
 
     var dgCountryOptions = [
