@@ -1,8 +1,6 @@
 # Deployment and validation
 
-This is a reviewed runbook, not an automatic installer. The verification assets
-may be installed, but Digitalogic's public TCI routes remain direct-to-101 until a
-separate IVR design is approved and tested.
+This runbook covers the caller-ID shortcut on Digitalogic's inbound TCI line.
 
 ## 1. Preflight and backups
 
@@ -64,18 +62,12 @@ Listen to every output and verify the BGM remains below speech, `*` can interrup
 the pending prompt, and both 8 kHz/16 kHz files are mono PCM. The installer creates
 an immutable release and atomically switches `current`.
 
-## 4. Keep the public dialplan direct to extension 101
+## 4. Restore the caller-ID shortcut
 
-Install only the dormant helper contexts from
-`asterisk/digitalogic-pending-shortcut.conf`. Do not add its `preflight` or
-`shortcut` calls to either `[from-tci]` entry path. Recheck the live checksum
-immediately before install.
-
-Both the `s` and `_X.` routes must contain only their existing inbound `NoOp`, then
-`prefix-tci-callerid` → `record-call` →
-`Dial(PJSIP/${OPERATOR_EXT},30,Tt)` → `Hangup(19)`. Keep `OPERATOR_EXT=101`.
-Remove the former `digitalogic-call-verification-menu`, public digit 2, pending
-lookup, and conditional shortcut from those public priorities completely.
+Apply the reviewed fragment to both `[from-tci]` paths. Invoke preflight before
+caller ID normalization or recording. Run the shortcut only for a positive lookup.
+End a verified call and keep the current operator and failover priorities for all
+other outcomes. Recheck the live checksum immediately before installation.
 
 Inside the existing `[prefix-tci-callerid]` subroutine, normalize `00989…` first,
 `0989…` second, and bare `989…` third, replacing each prefix with `09`. Then strip
@@ -104,18 +96,15 @@ asterisk -rx 'agi set debug off'
 
 Use real PSTN ANI and redacted evidence:
 
-- Every call, including one whose ANI has a pending website challenge, bypasses
-  the verification HTTP endpoint and AGI and rings extension 101 immediately.
-- Asterisk shows the paired TCI and `PJSIP/101` channels, with no verification
-  audio, early `Answer()`, prompt, or DTMF collection.
+- Call with an active website challenge. Verify the private keypad prompt, the
+  six-digit confirmation, the WordPress session, and the original return page.
+- Call without a challenge and verify the existing operator route.
 - `989123456789`, `0989123456789`, and `00989123456789` all normalize to
   `09123456789` before the internal callback access prefix is added; an existing
   `09…` ANI is unchanged.
 - `02166754123` becomes extension caller ID `966754123`; one-touch redial sends
   the same-city subscriber number `66754123` without the `021` prefix.
 - Both s and _X inbound paths behave identically.
-- The dormant helper contexts remain loaded but unreachable from public and
-  internal dialplan paths.
+- Keep the private verification context unreachable from internal extensions.
 
-Inbound verification can be revisited only as part of the approved Digitalogic
-IVR pass. Outbound voice remains a separate opt-in, authenticated trust boundary.
+Outbound voice remains a separate opt-in, authenticated trust boundary.

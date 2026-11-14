@@ -453,7 +453,7 @@
 					const display = String(data.dial.display || '');
 					const tel = String(data.dial.tel || '');
 					dialNumber.textContent = display;
-					if (/^\+?[0-9]+$/.test(tel)) {
+				if (dial.matches('a') && /^\+?[0-9]+$/.test(tel)) {
 						dial.setAttribute('href', `tel:${tel}`);
 					}
 				}
@@ -485,7 +485,6 @@
 
 		if (unified) {
 			addIcon(codeTitle, 'keypad');
-			addIcon(dial, 'phone');
 			addIcon(cancel, 'back');
 			window.DigitalogicCallLogin = {
 				start(value) {

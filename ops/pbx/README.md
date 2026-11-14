@@ -1,16 +1,16 @@
 # Digitalogic PBX operational assets
 
 Version 1.1.0 provides a dependency-free Node 18+ AGI helper for caller-aware
-phone verification at `+982166754123`. Digitalogic has no public inbound IVR, so
-the current production DID bypasses every verification helper and rings extension
-101 directly. The helper and its BGM-mixed prompts remain installed but dormant
-for the next, separately approved IVR pass. No public verification digit exists.
+phone verification at `+982166754123`. Both TCI entry routes check for a live
+website challenge before caller ID normalization and operator routing. A matching
+challenge opens the private keypad prompt. Other callers continue to the operator.
+No public verification digit exists.
 Before the existing internal callback prefix is added, inbound caller IDs beginning
 with `989`, `0989`, or `00989` are canonicalized to the Iranian local `09` form.
 Tehran landlines also lose the same-city `021` prefix, so extension redial uses a
 number the TCI trunk accepts.
 
-The dormant wrapper forwards one reviewed mode to the helper:
+The wrapper forwards one reviewed mode to the helper:
 
 - `preflight`: signed ANI lookup with no audio. It sets only
   `PBX_VERIFY_PENDING=0|1`.
@@ -44,8 +44,8 @@ v1\nPOST\n<exact path>\n<timestamp>\n<nonce>\n<sha256(raw JSON body)>
 ```
 
 The HMAC key is the decoded random bytes in the root-owned base64 secret file.
-Redirects are refused and response size/time are bounded. If preflight is enabled
-in a future IVR, its errors fail open; code confirmation remains fail closed.
+Redirects are refused and response size/time are bounded. Preflight errors
+fall through to the operator. Only successful confirmation verifies the code.
 Every dedicated verification prompt uses the established filtered, limited BGM
 mix so retries, success, invalid-code, and failure audio remain stylistically
 consistent without masking the speech.
