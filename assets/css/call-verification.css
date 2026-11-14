@@ -75,6 +75,194 @@ body.login .digitalogic-call-verification {
 	margin: 1rem auto;
 }
 
+body.login .dg-digits-login-shell.digitalogic-call-active > .digits-form_container,
+body.login .digitalogic-call-panel--branded [data-call-entry][hidden] {
+	display: none !important;
+}
+
+body.login .dg-digits-login-shell > .digitalogic-call-panel--branded {
+	align-self: center;
+	min-inline-size: 0;
+	margin: 0;
+	padding-block: 8px;
+	border: 0;
+	background: none;
+	color: var(--dg-text);
+	font: 500 14px/1.65 var(--dg-font, system-ui, sans-serif);
+	text-align: start;
+}
+
+body.login .dg-digits-login-shell .digitalogic-call-panel--branded :is(.digitalogic-call-entry, .digitalogic-call-instructions) {
+	display: grid;
+	gap: 16px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: none;
+}
+
+body.login .digitalogic-call-panel--branded :is(p, h2, output, button, a) {
+	margin: 0;
+}
+
+body.login .digitalogic-call-panel--branded .digitalogic-call-step-title {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	color: var(--dg-heading);
+	font: 800 22px/1.5 var(--dg-font, system-ui, sans-serif);
+}
+
+body.login .digitalogic-call-panel--branded .digitalogic-call-icon {
+	inline-size: 18px;
+	block-size: 18px;
+	flex: 0 0 auto;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.8;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+body.login .digitalogic-call-panel--branded .digitalogic-call-step-title .digitalogic-call-icon {
+	box-sizing: content-box;
+	padding: 10px;
+	border-radius: 13px;
+	background: var(--dg-accent-soft);
+	color: var(--dg-accent-strong);
+}
+
+body.login .digitalogic-call-panel--branded .digitalogic-call-entry-field {
+	display: grid;
+	gap: 7px;
+	min-inline-size: 0;
+}
+
+body.login .digitalogic-call-panel--branded label {
+	margin: 0;
+	color: var(--dg-heading);
+	font-weight: 700;
+}
+
+body.login .digitalogic-call-panel--branded .digitalogic-call-phone-field {
+	position: relative;
+	direction: ltr;
+}
+
+body.login .digitalogic-call-panel--branded .digitalogic-call-phone-field .digitalogic-call-icon {
+	position: absolute;
+	inset-block-start: 50%;
+	inset-inline-start: 14px;
+	transform: translateY(-50%);
+	color: var(--dg-accent-strong);
+	pointer-events: none;
+}
+
+body.login .dg-digits-login-shell .digitalogic-call-panel--branded input[data-call-phone] {
+	box-sizing: border-box;
+	inline-size: 100%;
+	min-block-size: 54px;
+	margin: 0;
+	padding: 10px 14px 10px 42px;
+	border: 1px solid var(--dg-border);
+	border-radius: 16px;
+	background: var(--dg-input-bg);
+	color: var(--dg-text);
+	font: 500 16px/1.5 var(--dg-auth-digits, var(--dg-font, system-ui));
+	font-variant-numeric: tabular-nums;
+	text-align: left;
+}
+
+body.login .digitalogic-call-panel--branded input[data-call-phone]:focus {
+	border-color: var(--dg-accent-strong);
+	outline: 2px solid var(--dg-accent-soft);
+	outline-offset: 1px;
+}
+
+body.login .digitalogic-call-panel--branded input[data-call-phone][aria-invalid="true"] {
+	border-color: var(--dg-error, #b32636);
+}
+
+body.login .digitalogic-call-panel--branded .digitalogic-call-hint,
+body.login .digitalogic-call-panel--branded .digitalogic-call-status {
+	color: var(--dg-text-soft);
+	font-size: 14px;
+	line-height: 1.75;
+}
+
+body.login .digitalogic-call-panel--branded .digitalogic-call-error {
+	color: var(--dg-error, #b32636);
+	font-size: 14px;
+	line-height: 1.75;
+}
+
+body.login .digitalogic-call-panel--branded :is([data-call-start], .digitalogic-call-dial, .digitalogic-call-back) {
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 9px;
+	inline-size: 100%;
+	min-block-size: 48px;
+	padding: 9px 14px;
+	border-radius: 14px;
+	font: 700 14px/1.5 var(--dg-font, system-ui, sans-serif);
+	white-space: normal;
+	text-decoration: none;
+}
+
+body.login .dg-digits-login-shell .digitalogic-call-panel--branded :is([data-call-start], .digitalogic-call-dial) {
+	min-block-size: 52px;
+	background: linear-gradient(135deg, #0876c3, #1055b5);
+	color: #fff;
+}
+
+body.login .digitalogic-call-panel--branded [data-call-start]:disabled {
+	opacity: .6;
+}
+
+body.login .digitalogic-call-panel--branded [data-call-start] .digitalogic-call-icon {
+	order: 1;
+}
+
+body.login.rtl .digitalogic-call-panel--branded :is(.digitalogic-call-icon--arrow, .digitalogic-call-icon--back) {
+	transform: scaleX(-1);
+}
+
+body.login .digitalogic-call-panel--branded .digitalogic-call-back {
+	border: 1px solid var(--dg-border);
+	background: var(--dg-panel-soft);
+	color: var(--dg-text);
+}
+
+body.login .digitalogic-call-panel--branded .digitalogic-call-code {
+	padding: 12px;
+	border: 1px solid var(--dg-border);
+	border-radius: 16px;
+	background: var(--dg-panel-soft);
+	color: var(--dg-heading);
+	font-family: var(--dg-auth-digits, var(--dg-font, system-ui));
+	font-size: 32px;
+	font-variant-numeric: tabular-nums;
+}
+
+body.login .digitalogic-call-panel--branded .digitalogic-call-status {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+body.login .digitalogic-call-panel--branded [data-call-countdown] {
+	padding: 3px 10px;
+	border-radius: 999px;
+	background: var(--dg-accent-soft);
+	color: var(--dg-heading);
+	font-family: var(--dg-auth-digits, var(--dg-font, system-ui));
+	font-variant-numeric: tabular-nums;
+}
+
 @media (max-width: 600px) {
 	.digitalogic-contact-row,
 	.digitalogic-add-email {

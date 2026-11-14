@@ -748,7 +748,7 @@ body.login .dg-digits-login-shell.dg-digits-auto-identity[data-dg-identity="phon
 body.login .dg-country-code-control {
     position: relative;
     z-index: 60;
-    gap: 6px;
+    gap: 3px;
 }
 
 body.login .dg-country-flag,
@@ -756,20 +756,26 @@ body.login .dg-country-option-flag {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 20px;
+    width: 23px;
+    height: 17px;
+    flex: 0 0 auto;
+    padding: 0;
+    border: 0;
     overflow: hidden;
     border-radius: 5px;
     background: var(--dg-flag) center / cover no-repeat;
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dg-border) 70%, transparent);
     line-height: 1;
 }
+body.login button.dg-country-flag {
+    cursor: text;
+}
 
 body.login .dg-country-trigger {
     display: inline-grid;
     place-items: center;
-    width: 26px;
-    height: 30px;
+    width: 20px;
+    height: 32px;
     margin: 0;
     padding: 0;
     border: 0;
@@ -807,6 +813,7 @@ body.login .dg-country-menu {
     background: var(--dg-panel-strong);
     box-shadow: var(--dg-shadow);
     opacity: 0;
+    visibility: hidden;
     transform: translateY(-6px) scale(0.98);
     transform-origin: top left;
     pointer-events: none;
@@ -815,6 +822,7 @@ body.login .dg-country-menu {
 
 body.login .dg-country-code-control.is-open .dg-country-menu {
     opacity: 1;
+    visibility: visible;
     transform: translateY(0) scale(1);
     pointer-events: auto;
 }
@@ -1603,7 +1611,7 @@ body.login .digits-social-logins-box:not([hidden], [style*="display: none"]) {
 body.login .digits-use_social-logins {
     display: flex;
     justify-content: center;
-    margin-bottom: 16px;
+    margin: 0 !important;
 }
 
 body.login .digits-social-logins-box .digits-use_social-logins,
@@ -1613,6 +1621,16 @@ body.login .digits-social-logins-box .digits-social-logins {
 }
 
 body.login .digits-social-logins-box .digits-use_social-logins { order: -1; }
+body.login .digits-social-logins-box:not([hidden]) {
+    row-gap: 9px;
+}
+body.login .digits-social-logins-box .digits-social-logins,
+body.login .digits-social-logins-box .digits-social-logins > div,
+body.login .digits-social-logins-box .digits-social-btn {
+    margin-block: 0 !important;
+    padding-block-start: 0;
+    padding-block-end: 0;
+}
 
 body.login .digits-social-logins-box :is(.digits-use_social-logins, .digits-social-logins)::before,
 body.login .digits-social-logins-box :is(.digits-use_social-logins, .digits-social-logins)::after {
@@ -1732,7 +1750,7 @@ body.login .digits-form_heading > .dg-auth-icon {
 body.login .dg-auth-input-icon { position: relative; }
 body.login .dg-auth-input-icon > .dg-auth-icon {
     position: absolute;
-    inset-inline-start: 0;
+    inset-inline-start: 5px;
     inset-block-start: calc(50% - 10px);
     z-index: 1;
     color: var(--dg-accent-strong);
@@ -1749,8 +1767,11 @@ body.login .dg-digits-login-shell .digits_register .dg-auth-input-icon:has(> inp
 }
 body.login .dg-digits-login-shell.dg-digits-auto-identity .dg-auth-input-icon > input:is([name="digits_phone"], [name="digits_email"]),
 body.login .dg-digits-login-shell .digits_register #dig_cs_mobilenumber .dg-auth-input-icon > input[name="phone"] {
-    padding-left: 30px !important;
+    padding-left: 35px !important;
     padding-right: 12px !important;
+    min-block-size: 48px;
+    font-size: 16px;
+    line-height: 1.45 !important;
 }
 body.login .dg-digits-login-shell .dg-auth-input-icon > input:placeholder-shown:lang(fa) {
     text-align: right !important;
@@ -1787,11 +1808,23 @@ body.login .dg-digits-login-shell .dg-passkey-options .digitalogic-call-toggle {
     gap: 9px;
     text-align: center;
 }
+body.login .digits-social-logins-box .dg-passkey-options {
+    box-sizing: border-box;
+    inline-size: 100%;
+    align-self: stretch;
+    margin: 0;
+}
 body.login .dg-digits-login-shell .dg-passkey-options[open] > .digits-form_passwordless_login {
     border: 1px solid var(--dg-border) !important;
     background: var(--dg-panel-soft) !important;
     color: var(--dg-text) !important;
     box-shadow: none !important;
+    position: relative;
+}
+body.login .dg-digits-login-shell .dg-passkey-options > .digits-form_passwordless_login > .dg-auth-icon {
+    position: absolute;
+    inset-inline-start: 18px;
+    inset-block-start: calc(50% - 10px);
 }
 body.login .dg-digits-login-shell .dg-passkey-options[open] > .digits-form_passwordless_login:hover {
     border-color: var(--dg-border-strong) !important;
@@ -1804,10 +1837,6 @@ body.login .dg-digits-login-shell .dg-passkey-options > .digits-form_login_separ
     border: 0;
     background: none;
     opacity: 1;
-}
-body.login .dg-digits-login-shell form.digits_form_index_section:not(.dg-username-step-active) .dg-passkey-options[open] > .digits-form_login_separator {
-    display: flex !important;
-    justify-content: center;
 }
 body.login .dg-passkey-options > .digits-form_login_separator::before,
 body.login .dg-passkey-options > .digits-form_login_separator::after {
@@ -1893,6 +1922,9 @@ body.login .dg-digits-login-shell .dg-passkey-options .digitalogic-call-toggle {
     background: var(--dg-panel-soft);
     white-space: normal;
 }
+body.login .dg-digits-login-shell .dg-passkey-options[open] > .digits-form_passwordless_login {
+    padding-inline: 42px !important;
+}
 body.login .dg-digits-login-shell form:not(.digits_form_index_section) .dg-passkey-options[open] > .digits-form_passwordless_login,
 body.login .dg-digits-login-shell form.dg-username-step-active .dg-passkey-options[open] > .digits-form_passwordless_login {
     display: none !important;
@@ -1915,6 +1947,36 @@ body.login .dg-account-hint :is(summary, button) {
     cursor: pointer;
 }
 body.login .dg-account-hint button { margin-block-start: 5px; }
+body.login .dg-account-hint-divider {
+    margin: 10px 0 4px;
+    padding-block-start: 8px;
+    border-block-start: 1px solid var(--dg-border);
+    color: var(--dg-text-soft);
+    font-size: 13px;
+}
+body.login .dg-digits-login-shell form:not(.digits_form_index_section) .dg-account-hint,
+body.login .dg-digits-login-shell form.dg-username-step-active .dg-account-hint,
+body.login:has(.dg-digits-login-shell) #nav {
+    display: none !important;
+}
+body.login #login .dg-auth-home {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-block-size: 44px;
+    inline-size: fit-content;
+    margin: 0 auto 8px;
+    padding-inline: 14px;
+    border: 1px solid var(--dg-border);
+    border-radius: 12px;
+    background: var(--dg-panel-strong);
+    color: var(--dg-text);
+    text-decoration: none;
+    font-weight: 600;
+}
+body.login #login #backtoblog:empty {
+    display: none;
+}
 body.login .dg-account-hint img { inline-size: 28px; block-size: 28px; border-radius: 50%; object-fit: cover; }
 body.login #login :is(#lostpasswordform, #resetpassform) {
     background: var(--dg-panel-strong);

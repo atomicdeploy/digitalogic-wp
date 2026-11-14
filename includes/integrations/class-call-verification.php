@@ -1512,13 +1512,13 @@ final class Digitalogic_Call_Verification {
 			'digitalogic-call-verification',
 			DIGITALOGIC_PLUGIN_URL . 'assets/css/call-verification.css',
 			array(),
-			DIGITALOGIC_VERSION
+			(string) filemtime( DIGITALOGIC_PLUGIN_DIR . 'assets/css/call-verification.css' )
 		);
 		wp_enqueue_script(
 			'digitalogic-call-verification',
 			DIGITALOGIC_PLUGIN_URL . 'assets/js/call-verification.js',
 			array(),
-			DIGITALOGIC_VERSION,
+			(string) filemtime( DIGITALOGIC_PLUGIN_DIR . 'assets/js/call-verification.js' ),
 			true
 		);
 		wp_localize_script(
@@ -1528,14 +1528,17 @@ final class Digitalogic_Call_Verification {
 				'challengeUrl' => esc_url_raw( rest_url( self::REST_NAMESPACE . self::ROUTE ) ),
 				'contactsUrl'  => esc_url_raw( rest_url( self::REST_NAMESPACE . '/contacts' ) ),
 				'wpNonce'      => is_user_logged_in() ? wp_create_nonce( 'wp_rest' ) : '',
+				'areaCodes'    => Digitalogic_PBX_Phone::area_codes(),
+				'dialNumber'   => self::DIAL_TEL,
 				'messages'     => array(
-					'start'       => __( 'Verify by calling', 'digitalogic' ),
-					'waiting'     => __( 'Waiting for your call…', 'digitalogic' ),
-					'verified'    => __( 'Phone number verified. Finishing…', 'digitalogic' ),
-					'expired'     => __( 'This code expired. Please request another code.', 'digitalogic' ),
-					'error'       => __( 'Verification could not be completed. Please try again.', 'digitalogic' ),
-					'remaining'   => __( '%s seconds remaining', 'digitalogic' ),
-					'confirmDrop' => __( 'Removing this contact also disables voice notifications. Continue?', 'digitalogic' ),
+					'start'        => __( 'Verify by calling', 'digitalogic' ),
+					'waiting'      => __( 'Waiting for your call…', 'digitalogic' ),
+					'verified'     => __( 'Phone number verified. Finishing…', 'digitalogic' ),
+					'expired'      => __( 'This code expired. Please request another code.', 'digitalogic' ),
+					'error'        => __( 'Verification could not be completed. Please try again.', 'digitalogic' ),
+					'remaining'    => __( '%s seconds remaining', 'digitalogic' ),
+					'confirmDrop'  => __( 'Removing this contact also disables voice notifications. Continue?', 'digitalogic' ),
+					'invalidPhone' => __( 'Enter a valid Iranian mobile or landline number with its area code.', 'digitalogic' ),
 				),
 			)
 		);
@@ -1565,7 +1568,44 @@ final class Digitalogic_Call_Verification {
 			return;
 		}
 
-		$this->render_login_widget( false );
+		$this->render_branded_login_widget();
+	}
+
+	/** Render the two call verification steps in the branded login card. */
+	private function render_branded_login_widget(): void {
+		?>
+		<section class="digitalogic-call-verification" data-digitalogic-call-widget data-purpose="login">
+			<button type="button" id="digitalogic-login-call-toggle" class="button digitalogic-call-toggle" aria-expanded="false" aria-controls="digitalogic-login-call-panel"><?php esc_html_e( 'Verify by calling', 'digitalogic' ); ?></button>
+			<div class="digitalogic-call-panel digitalogic-call-panel--branded" id="digitalogic-login-call-panel" role="region" aria-labelledby="digitalogic-call-entry-title" hidden>
+				<div class="digitalogic-call-entry" data-call-entry>
+					<h2 class="digitalogic-call-step-title" id="digitalogic-call-entry-title"><?php esc_html_e( 'Verify by calling', 'digitalogic' ); ?></h2>
+					<div class="digitalogic-call-entry-field">
+						<label for="digitalogic-login-call-phone"><?php esc_html_e( 'Mobile or landline number', 'digitalogic' ); ?></label>
+						<div class="digitalogic-call-phone-field">
+							<input type="tel" id="digitalogic-login-call-phone" inputmode="tel" autocomplete="tel" autocorrect="off" spellcheck="false" dir="ltr" maxlength="32" data-call-phone aria-describedby="digitalogic-login-call-phone-help" placeholder="021 1234 5678">
+						</div>
+						<p class="digitalogic-call-hint" id="digitalogic-login-call-phone-help"><?php esc_html_e( 'Include the area code for landlines.', 'digitalogic' ); ?></p>
+						<p class="digitalogic-call-error" id="digitalogic-login-call-error" data-call-error role="alert" hidden></p>
+					</div>
+					<button type="button" class="button button-primary" data-call-start><?php esc_html_e( 'Create call code', 'digitalogic' ); ?></button>
+					<button type="button" class="button digitalogic-call-back" data-call-back><?php esc_html_e( 'Back to sign in', 'digitalogic' ); ?></button>
+				</div>
+				<div class="digitalogic-call-instructions" data-call-instructions hidden>
+					<h2 class="digitalogic-call-step-title" id="digitalogic-call-code-title" tabindex="-1" data-call-code-title><?php esc_html_e( 'Your call code', 'digitalogic' ); ?></h2>
+					<p class="digitalogic-call-hint"><?php esc_html_e( 'Call from the same number you entered. When you hear «دوست عزیزم», enter the code using your phone keypad.', 'digitalogic' ); ?></p>
+					<output class="digitalogic-call-code" data-call-code dir="ltr"></output>
+					<div class="digitalogic-call-status">
+						<p data-call-status role="status"><?php esc_html_e( 'Waiting for your call…', 'digitalogic' ); ?></p>
+						<span data-call-countdown role="timer" dir="ltr"></span>
+					</div>
+					<a class="button button-primary digitalogic-call-dial" data-call-dial href="tel:<?php echo esc_attr( self::DIAL_TEL ); ?>" aria-label="<?php esc_attr_e( 'Call Digitalogic', 'digitalogic' ); ?>">
+						<span data-call-dial-number dir="ltr"><?php echo esc_html( self::DIAL_DISPLAY ); ?></span>
+					</a>
+					<button type="button" class="button digitalogic-call-back" data-call-cancel><?php esc_html_e( 'Edit phone number', 'digitalogic' ); ?></button>
+				</div>
+			</div>
+		</section>
+		<?php
 	}
 
 	/**
@@ -1581,36 +1621,24 @@ final class Digitalogic_Call_Verification {
 		}
 		?>
 		<div class="digitalogic-call-parking" data-digitalogic-sidebar-call-parking hidden>
-			<?php $this->render_login_widget( true ); ?>
+			<?php $this->render_sidebar_login_widget(); ?>
 		</div>
 		<?php
 	}
 
 	/**
-	 * Render the shared login-purpose call-verification controls.
-	 *
-	 * @param bool $sidebar Whether this is the singleton parked for Woodmart.
+	 * Render the login-purpose call verification controls for Woodmart.
 	 */
-	private function render_login_widget( bool $sidebar ): void {
-		$toggle_id     = $sidebar ? 'digitalogic-sidebar-call-toggle' : 'digitalogic-login-call-toggle';
-		$panel_id      = $sidebar ? 'digitalogic-sidebar-call-panel' : 'digitalogic-login-call-panel';
-		$phone_help_id = $sidebar ? 'digitalogic-sidebar-call-phone-help' : 'digitalogic-login-call-phone-help';
+	private function render_sidebar_login_widget(): void {
 		?>
-		<section
-			class="<?php echo esc_attr( 'digitalogic-call-verification' . ( $sidebar ? ' digitalogic-call-verification--sidebar' : '' ) ); ?>"
-			data-digitalogic-call-widget
-			data-purpose="login"
-			<?php if ( $sidebar ) : ?>
-				data-digitalogic-sidebar-call-widget hidden
-			<?php endif; ?>
-		>
-			<button type="button" id="<?php echo esc_attr( $toggle_id ); ?>" class="button digitalogic-call-toggle" aria-expanded="false" aria-controls="<?php echo esc_attr( $panel_id ); ?>"><?php esc_html_e( 'Verify by calling', 'digitalogic' ); ?></button>
-			<div class="digitalogic-call-panel" id="<?php echo esc_attr( $panel_id ); ?>" role="region" aria-labelledby="<?php echo esc_attr( $toggle_id ); ?>" hidden>
+		<section class="digitalogic-call-verification digitalogic-call-verification--sidebar" data-digitalogic-call-widget data-purpose="login" data-digitalogic-sidebar-call-widget hidden>
+			<button type="button" id="digitalogic-sidebar-call-toggle" class="button digitalogic-call-toggle" aria-expanded="false" aria-controls="digitalogic-sidebar-call-panel"><?php esc_html_e( 'Verify by calling', 'digitalogic' ); ?></button>
+			<div class="digitalogic-call-panel" id="digitalogic-sidebar-call-panel" role="region" aria-labelledby="digitalogic-sidebar-call-toggle" hidden>
 				<label>
 					<span><?php esc_html_e( 'Mobile or landline number (include area code)', 'digitalogic' ); ?></span>
-					<input type="tel" inputmode="tel" autocomplete="tel" dir="ltr" data-call-phone aria-describedby="<?php echo esc_attr( $phone_help_id ); ?>" placeholder="02112345678">
+					<input type="tel" inputmode="tel" autocomplete="tel" dir="ltr" data-call-phone aria-describedby="digitalogic-sidebar-call-phone-help" placeholder="02112345678">
 				</label>
-				<p class="digitalogic-call-match-note" id="<?php echo esc_attr( $phone_help_id ); ?>"><?php esc_html_e( 'Place the call from the same phone number you entered so caller ID can confirm ownership.', 'digitalogic' ); ?></p>
+				<p class="digitalogic-call-match-note" id="digitalogic-sidebar-call-phone-help"><?php esc_html_e( 'Place the call from the same phone number you entered so caller ID can confirm ownership.', 'digitalogic' ); ?></p>
 				<button type="button" class="button button-primary" data-call-start><?php esc_html_e( 'Create call code', 'digitalogic' ); ?></button>
 				<div class="digitalogic-call-instructions" data-call-instructions hidden>
 					<p><?php esc_html_e( 'Call', 'digitalogic' ); ?> <a dir="ltr" data-call-dial href="tel:<?php echo esc_attr( self::DIAL_TEL ); ?>"><?php echo esc_html( self::DIAL_DISPLAY ); ?></a></p>

@@ -558,6 +558,7 @@ JS;
 			$config['loginSlidesUrl']     = rest_url( 'digitalogic/v1/login-slides' );
 			$config['authWebSocket']      = class_exists( 'Digitalogic_WebSocket' ) ? Digitalogic_WebSocket::instance()->get_public_client_config() : array();
 			$config['rememberedAccount'] = Digitalogic_Plugin_Auth_Routes::remembered_account();
+			$config['rememberedAccounts'] = Digitalogic_Plugin_Auth_Routes::remembered_accounts();
 			$config['digitsSignupNotice'] = __( 'Please signup before logging in.', 'digits' ); // phpcs:ignore WordPress.WP.I18n.TextDomainMismatch -- Match the native Digits response.
 		}
 

@@ -50,7 +50,7 @@ test('the call alternative is disclosure-safe and makes no request until start',
 });
 
 test('server-returned dial number and code populate shortcut instructions without an invented IVR digit', () => {
-	assert.match(source, /dial\.textContent = display/);
+	assert.match(source, /dialNumber\.textContent = display/);
 	assert.match(source, /dial\.setAttribute\('href', `tel:\$\{tel\}`\)/);
 	assert.match(source, /code\.textContent = data\.code/);
 	assert.match(source, /body: JSON\.stringify\(\{ phone: phone\.value, purpose \}\)/);
@@ -103,5 +103,5 @@ test('cancel is disabled once verified proof consumption becomes irreversible', 
 	assert.ok(disableCancel > verifiedBranch);
 	assert.ok(consumeCall > disableCancel);
 	assert.ok(retryReset > -1);
-	assert.match(source.slice(disableCancel, consumeCall), /widget\.setAttribute\('aria-busy', 'true'\)/);
+	assert.match(source.slice(disableCancel, consumeCall), /busyRegion\.setAttribute\('aria-busy', 'true'\)/);
 });

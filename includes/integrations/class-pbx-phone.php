@@ -61,6 +61,11 @@ final class Digitalogic_PBX_Phone {
 	/** @var string[] Numbers that are service entry points, not customer contacts. */
 	private const BLOCKED_NUMBERS = array( '+982166754123' );
 
+	/** Get the supported national area codes for the browser's input validation. */
+	public static function area_codes(): array {
+		return self::AREA_CODES;
+	}
+
 	/**
 	 * Normalize customer input to E.164.
 	 *
