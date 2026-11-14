@@ -187,9 +187,10 @@ final class MobileIdentityStore {
 	 * Authenticate a native bearer against current session and WordPress password authority.
 	 *
 	 * @param string $header Header.
+	 * @param bool   $touch Whether to record normal authenticated activity.
 	 * @return array|null Native adapter result.
 	 */
-	public static function authenticate( string $header ): ?array {
+	public static function authenticate( string $header, bool $touch = true ): ?array {
 		global $wpdb;
 		if ( ! preg_match( '/\ABearer ([a-f0-9]{64})\z/iD', $header, $match ) ) {
 			return null;
@@ -200,7 +201,7 @@ final class MobileIdentityStore {
 		if ( ! $user || get_user_meta( $user->ID, '_digitalogic_merged_into', true ) || ! hash_equals( $row['auth_epoch'], self::hash( $user->user_pass ) ) ) {
 			return null;
 		}
-		if ( (int) $row['last_seen_at'] < time() - 60 ) {
+		if ( $touch && (int) $row['last_seen_at'] < time() - 60 ) {
 			$wpdb->update( $table, array( 'last_seen_at' => time() ), array( 'id' => $row['id'] ), array( '%d' ), array( '%s' ) );
 		}
 		return $row;

@@ -9,6 +9,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// Register at plugin load, before init-time provider policies inspect the current user.
+// This normal WordPress authentication hook is restricted to exact native checkout paths.
+add_filter( 'determine_current_user', array( \Digitalogic\Laravel\Services\MobileCheckoutRequestAuth::class, 'determineUser' ), 90 );
+
 /** Native adapter over canonical WordPress and WooCommerce authority. */
 final class Digitalogic_Mobile_API {
 

@@ -38,6 +38,9 @@ final class MobileCheckoutController {
 	 * @return mixed Native adapter result.
 	 */
 	private function context( Request $request ) {
+		if ( \Digitalogic\Laravel\Services\MobileCheckoutRequestAuth::conflicted() ) {
+			return new \WP_Error( 'identity_conflict', 'نشست‌های ورود این درخواست با هم سازگار نیستند.', array( 'status' => 403 ) );
+		}
 		if ( ! self::enabled() ) {
 			return new \WP_Error( 'checkout_unavailable', 'تکمیل خرید موقتاً در دسترس نیست.', array( 'status' => 503 ) );}
 		$context = ( new MobileCartController() )->context( $request );
