@@ -389,9 +389,49 @@ async function checkOtpEditor(page, channel) {
     assert.equal(await page.locator(`input[name="${channel}_otp"]`).inputValue(), '123456');
 }
 
+async function checkLoginSwitchers(browser) {
+    for (const showTheme of [false, true]) {
+        for (const showLanguage of [false, true]) {
+            const page = await browser.newPage({ viewport: { width: 390, height: 800 } });
+            const language = '<div class="language-switcher"><form id="language-switcher" method="get">' +
+                '<select id="language-switcher-locales" name="wp_lang"><option value="fa_IR">فارسی</option>' +
+                '<option value="en_US">English</option></select><input type="hidden" name="redirect_to" value="/shop/">' +
+                '<input type="submit" value="Change"></form></div>';
+            await page.route('https://digitalogic.test/login/**', route => route.fulfill({
+                contentType: 'text/html; charset=utf-8',
+                body: '<html lang="fa" dir="rtl"><body class="login"><div id="login"></div>' +
+                    (showLanguage ? language : '') + '</body></html>'
+            }));
+            await page.goto('https://digitalogic.test/login/');
+            await page.evaluate(enabled => { window.DigitalogicBranding = { showLoginThemeSwitcher: enabled }; }, showTheme);
+            await page.addStyleTag({ path: styles });
+            await page.addScriptTag({ path: branding });
+            await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
+            const theme = page.locator('.dg-theme-toggle-button');
+            const picker = page.locator('.dg-language-trigger');
+            assert.equal(await theme.count(), Number(showTheme));
+            assert.equal(await picker.count(), Number(showLanguage));
+            if (showTheme) {
+                await theme.click();
+                assert.equal(await page.locator('html').getAttribute('data-dg-theme'), 'dark');
+                await theme.click();
+                assert.equal(await page.locator('html').getAttribute('data-dg-theme'), 'light');
+            }
+            if (showLanguage) {
+                await picker.click();
+                await page.locator('.dg-language-menu').getByRole('option', { name: 'English' }).click();
+                await page.waitForURL(url => url.searchParams.get('wp_lang') === 'en_US' &&
+                    url.searchParams.get('redirect_to') === '/shop/');
+            }
+            await page.close();
+        }
+    }
+}
+
 (async () => {
     const browser = await chromium.launch(process.env.DG_BROWSER_CHANNEL ? { channel: process.env.DG_BROWSER_CHANNEL } : {});
     try {
+        await checkLoginSwitchers(browser);
         for (const [direction, width, skipPassword, skipPasswordCaption] of [
             ['rtl', 390, 'ورود بدون رمز عبور', 'رمز خود را فراموش کرده اید؟'],
             ['ltr', 1024, 'Sign in without a password', 'Forgot your password?']

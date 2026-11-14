@@ -508,27 +508,41 @@ final class Digitalogic_Plugin_Auth_Routes {
 		self::render_digits_login();
     }
 
-    /**
-     * Render the custom login footer without WordPress.org translation discovery.
-     *
-     * The canonical login page already runs in the locale selected by WordPress
-     * (including a supplied wp_lang value). The core footer language selector can
-     * nevertheless call the remote translations API while rendering, holding a
-     * PHP-FPM worker when that service is slow or unavailable. Keep the override
-     * scoped to this footer render so the standard WordPress login screen and all
-     * other admin language controls retain their normal behaviour.
-     */
-    private static function render_login_footer(): void {
-        add_filter('login_display_language_dropdown', '__return_false', PHP_INT_MAX);
+	/** Keep the core language selector optional and local to this footer render. */
+	private static function render_login_footer(): void {
+		$show_language = (bool) apply_filters( 'digitalogic_login_show_language_switcher', false );
+		$hook          = $show_language ? 'login_language_dropdown_args' : 'login_display_language_dropdown';
+		$callback      = $show_language ? self::installed_login_languages( ... ) : '__return_false';
+		add_filter( $hook, $callback, PHP_INT_MAX );
 		add_filter( 'login_site_html_link', array( self::class, 'auth_footer_link' ) );
 
-        try {
-            login_footer('user_login');
-        } finally {
-            remove_filter('login_display_language_dropdown', '__return_false', PHP_INT_MAX);
+		try {
+			login_footer( 'user_login' );
+		} finally {
+			remove_filter( $hook, $callback, PHP_INT_MAX );
 			remove_filter( 'login_site_html_link', array( self::class, 'auth_footer_link' ) );
-        }
-    }
+		}
+	}
+
+	/**
+	 * Supply translation metadata without triggering a WordPress.org request.
+	 *
+	 * @param array $args Core language dropdown arguments.
+	 */
+	private static function installed_login_languages( array $args ): array {
+		$cached = get_site_transient( 'available_translations' );
+		// Core fetches remote metadata if this array is empty, even when only installed languages are shown.
+		$args['translations']                = ( is_array( $cached ) ? $cached : array() ) + array(
+			'fa_IR' => array(
+				'language'    => 'fa_IR',
+				'native_name' => 'فارسی',
+				'iso'         => array( 'fa' ),
+			),
+		);
+		$args['languages']                   = get_available_languages();
+		$args['show_available_translations'] = false;
+		return $args;
+	}
 
 	/** Render the exit link in the WordPress footer, including without JavaScript. */
 	public static function auth_footer_link(): string {

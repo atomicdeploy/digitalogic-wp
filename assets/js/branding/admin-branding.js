@@ -340,21 +340,23 @@
     }
 
     function injectLoginToggle() {
-        if (!document.body || !document.body.classList.contains('login') || document.querySelector('[data-dg-theme-toggle-button]')) {
+        if (!config.showLoginThemeSwitcher || !document.body?.classList.contains('login') || document.querySelector('[data-dg-theme-toggle-button]')) {
             return;
         }
 
-        var switcher = document.querySelector('.language-switcher');
-        if (!switcher) {
-            return;
-        }
-
+        var login = document.getElementById('login');
+        if (!login) { return; }
+        var controls = document.createElement('div');
+        controls.className = 'dg-login-preferences';
+        login.after(controls);
         var button = document.createElement('button');
         button.type = 'button';
         button.className = 'dg-theme-toggle-button';
         button.setAttribute('data-dg-theme-toggle-button', 'true');
         button.addEventListener('click', toggleTheme);
-        switcher.prepend(button);
+        controls.append(button);
+        var language = document.querySelector('.language-switcher');
+        if (language) { controls.append(language); }
         syncToggleLabels(currentTheme());
     }
 
