@@ -2264,8 +2264,20 @@ body.login .dg-otp-instructions > .digits-form_input_info {
     transform: none !important;
 }
 body.login .dg-otp-instructions > .digits-form_input_info:empty,
-body.login .dg-otp-instructions:has(> .digits-form_input_info:not(:empty)) > .dg-auth-icon {
+body.login .dg-otp-instructions:has(> :is(.digits-form_input_info:not(:empty), .digits_otp_info)) > .dg-auth-icon {
     display: none !important;
+}
+body.login .dg-otp-instructions > .digits_otp_info {
+    position: relative;
+    inset: auto;
+    padding: 0;
+    flex: 0 0 18px;
+    block-size: 18px;
+}
+body.login .dg-otp-instructions > .digits_otp_info .digits_otp_info_ic {
+    position: absolute;
+    inset: 0;
+    transform: none;
 }
 body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input_row:has(.dg-otp-editor)::before,
 body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_input:has(> .dg-otp-stack)::before {

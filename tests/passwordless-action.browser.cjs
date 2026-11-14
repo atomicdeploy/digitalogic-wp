@@ -266,9 +266,16 @@ async function checkSmsAction(page, labels) {
         const choice = event.target.closest('.digits-form_otp_selector');
         if (!choice) { return; }
         document.body.dataset.selectedChannel = choice.dataset.type;
-        choice.parentElement.innerHTML = '<div class="digits-form_input_row"><div class="digits-form_input">' +
-            '<input name="sms_otp" class="otp_input" maxlength="6"><span class="digits-form_input_info">ⓘ</span>' +
-            '</div></div><button type="button" class="digits-form_resend_otp digits_resend_disabled">Resend</button>';
+        const tab = choice.parentElement;
+        tab.innerHTML = '<div class="digits-form_input_row"><div class="digits-form_input digits-form_input_info digits_auto_check">' +
+            '<input name="sms_otp" class="otp_input digits_otp_input-field"><input name="otp_step_1" type="hidden" value="1">' +
+            '<input name="otp_token_key" type="hidden" value="fixture"></div></div>' +
+            '<button type="button" class="digits-form_resend_otp digits_resend_disabled">Resend</button>';
+        // Digits can add the tooltip after the tab and its code field are inserted.
+        setTimeout(() => {
+            tab.querySelector('.digits-form_input_info').insertAdjacentHTML('beforeend',
+                '<span class="digits_otp_info"><span class="digits_otp_info_ic"></span></span>');
+        }, 0);
     }));
     await page.locator('input[name="digits_phone"]').fill('09120000000');
     await page.getByRole('button', { name: labels.sendSmsCode, exact: true }).click();
@@ -276,7 +283,11 @@ async function checkSmsAction(page, labels) {
     await first.waitFor();
     assert.equal(await page.locator('body').getAttribute('data-selected-channel'), 'sms_otp');
     const caption = page.locator('.dg-otp-instructions');
-    assert.equal(await caption.locator('.digits-form_input_info').count(), 1);
+    await caption.locator('.digits_otp_info_ic').waitFor();
+    const digits = page.locator('.dg-otp-slot input:visible');
+    assert.equal(await digits.count(), 6);
+    assert.equal(await page.locator('.digits-form_input_info > input[name="otp_token_key"]').inputValue(), 'fixture');
+    assert.equal(await page.locator('.digits-form_input_info > input[name="sms_otp"]').getAttribute('aria-hidden'), 'true');
     await page.addStyleTag({ content: '#login .dg-digits-login-shell .digits-tab_active { display: flex !important; }' });
     const captionBox = await caption.boundingBox();
     const firstBox = await first.boundingBox();

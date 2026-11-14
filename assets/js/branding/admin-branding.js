@@ -1949,7 +1949,9 @@
     }
 
     function prepareDigitsOtpEditor(input) {
-        if (digitsOtpEditors.has(input)) {
+        var existingEditor = digitsOtpEditors.get(input);
+        if (existingEditor) {
+            existingEditor.moveInformation();
             return;
         }
 
@@ -1975,8 +1977,22 @@
             : getLabel('smsCodeInstructions', 'Enter the code sent to your phone.');
         putAuthIcon(help, 'info');
         help.prepend(caption);
-        var info = row.querySelector('.digits-form_input_info');
-        if (info) { help.append(info); }
+        function moveInformation() {
+            var info = row.querySelector('.digits-form_input_info');
+            if (info?.contains(input)) {
+                // Digits can use the field wrapper itself as its information target.
+                // Keep the field and its hidden form data in place.
+                var tooltip = info.querySelector(':scope > .digits_otp_info');
+                if (tooltip) {
+                    help.querySelector(':scope > .digits_otp_info')?.remove();
+                    help.append(tooltip);
+                }
+            } else if (info && info.parentElement !== help) {
+                help.append(info);
+            }
+        }
+
+        moveInformation();
         stack.append(help, editor);
         var heading = input.form?.querySelector('.digits-form_heading');
         if (heading && !heading.querySelector('.dg-otp-heading')) {
@@ -2125,6 +2141,7 @@
 
         var hadFocus = document.activeElement === input;
         digitsOtpEditors.set(input, {
+            moveInformation: moveInformation,
             fill: function (code) {
                 cells.forEach(function (cell) { setDigit(cell, '', false); });
                 fillDigits(code, 0, false);
