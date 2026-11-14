@@ -1,5 +1,8 @@
 # PBX call verification and voice order updates
 
+For where this method fits in the login card, see the
+[Digitalogic authentication flow](AUTHENTICATION-FLOW.md#2-call-verification).
+
 Digitalogic exposes an inbound verification option alongside the existing Digits login. A user enters an Iranian mobile or fixed-line number, receives a six-digit code that expires after 120 seconds, and calls `021-66754123` from that same number. When the signed pending-ANI probe finds the live challenge, the PBX plays the «دوست عزیزم» shortcut and collects the code directly; otherwise the call falls through to the operator. Digitalogic has no website digit in its main IVR. The signed PBX callback must match both the canonical number and code before the browser can consume the challenge.
 
 The same proof can add a verified supplemental phone to WooCommerce My Account. Customers can also keep multiple supplemental email addresses. A verified phone is eligible for order-announcement consent, but consent, the global switch, and every order status are all off by default.
