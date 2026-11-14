@@ -45,7 +45,7 @@ flowchart TD
 | What the user enters or chooses | What the card does next |
 | --- | --- |
 | Username or a validated email | Ask for the password. On the password screen, **Sign in without a password** switches to contact verification. |
-| Mobile number | Ask Digits to send an SMS code. If Digits requests signup for a new mobile, the card carries the number into signup. |
+| Mobile number | Offer SMS by default and a phone call when call verification is enabled. If Digits requests signup for a new mobile on the SMS path, the card carries the number into signup. |
 | Fixed-line number | Show call instructions. If the numbering plan cannot distinguish fixed lines from mobiles, offer SMS and call when call verification is available. |
 | Email or phone in recovery | Send an email code for a validated email, or use the applicable SMS or call route for the phone. Ask for the contact if it is missing. |
 | Direct signup link | Open the same card; the configured Digits signup flow verifies the mobile before creating the account. |

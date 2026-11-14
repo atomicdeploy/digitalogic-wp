@@ -1452,8 +1452,14 @@
             && form.dataset.dgUsernameStep !== 'password';
     }
 
+    function canChoosePhoneChannel(number, shell) {
+        return number.valid && ['MOBILE', 'FIXED_LINE_OR_MOBILE'].includes(number.kind)
+            && !!shell.querySelector('[data-call-unified][data-call-available="true"]');
+    }
+
     function digitsIdentityAction(form) {
-        var mode = form.closest('.dg-digits-login-shell').dataset.dgIdentity;
+        var shell = form.closest('.dg-digits-login-shell');
+        var mode = shell.dataset.dgIdentity;
         var value = digitsIdentityValue(form);
         var passwordless = form.dataset.dgSmsIdentity === 'true';
         if (mode === 'email' && emailDomain(value)) {
@@ -1465,7 +1471,8 @@
         if (mode === 'phone') {
             var number = phonePartsFromValue(value, form.querySelector('[name="login_digt_countrycode"]')?.value);
             if (number.valid && (!number.kind || ['MOBILE', 'FIXED_LINE_OR_MOBILE', 'FIXED_LINE'].includes(number.kind))) {
-                var byCall = number.kind === 'FIXED_LINE' || (number.kind === 'FIXED_LINE_OR_MOBILE' && form.dataset.dgPhoneChannel === 'call');
+                var byCall = number.kind === 'FIXED_LINE'
+                    || (form.dataset.dgPhoneChannel === 'call' && canChoosePhoneChannel(number, shell));
                 return { type: byCall ? 'call' : 'sms', enabled: true, number: number };
             }
         }
@@ -1955,21 +1962,19 @@
         editor.setAttribute('role', 'group');
         editor.setAttribute('aria-label', getLabel('otpCode', 'Verification code'));
         var row = input.closest('.digits-form_input_row') || input.parentElement;
-        var step = input.closest('.digits-form_tab_body') || input.closest('.digits-form_tab_container');
-        var help = step && step.querySelector('.dg-otp-instructions');
-        if (step && !help) {
-            help = document.createElement('p');
-            help.className = 'dg-otp-instructions';
-            var caption = document.createElement('span');
-            caption.textContent = input.name === 'email_otp'
-                ? getLabel('emailCodeInstructions', 'Enter the code sent to your email address.')
-                : getLabel('smsCodeInstructions', 'Enter the code sent to your phone.');
-            putAuthIcon(help, 'info');
-            help.prepend(caption);
-            row.before(help);
-        }
+        var stack = document.createElement('div');
+        stack.className = 'dg-otp-stack';
+        var help = document.createElement('p');
+        help.className = 'dg-otp-instructions';
+        var caption = document.createElement('span');
+        caption.textContent = input.name === 'email_otp'
+            ? getLabel('emailCodeInstructions', 'Enter the code sent to your email address.')
+            : getLabel('smsCodeInstructions', 'Enter the code sent to your phone.');
+        putAuthIcon(help, 'info');
+        help.prepend(caption);
         var info = row.querySelector('.digits-form_input_info');
-        if (help && info) { help.append(info); }
+        if (info) { help.append(info); }
+        stack.append(help, editor);
         var heading = input.form?.querySelector('.digits-form_heading');
         if (heading && !heading.querySelector('.dg-otp-heading')) {
             var title = document.createElement('span');
@@ -2129,7 +2134,7 @@
                 focusDigit(0);
             }
         });
-        input.before(editor);
+        input.before(stack);
         input.classList.add('dg-otp-native');
         input.tabIndex = -1;
         input.setAttribute('aria-hidden', 'true');
@@ -3179,8 +3184,7 @@
         phoneInput.closest('.digits-mobile_wrapper')?.after(channels);
         function updatePhoneChannels() {
             var number = phonePartsFromValue(phoneInput.value, countryCode?.value);
-            channels.hidden = shell.dataset.dgIdentity !== 'phone' || number.kind !== 'FIXED_LINE_OR_MOBILE'
-                || !document.querySelector('[data-call-unified][data-call-available="true"]');
+            channels.hidden = shell.dataset.dgIdentity !== 'phone' || !canChoosePhoneChannel(number, shell);
             channels.querySelectorAll('input').forEach(function (choice) {
                 choice.disabled = channels.hidden;
                 if (channels.hidden) { choice.checked = choice.value === 'sms'; }
