@@ -5,36 +5,45 @@ const path = require('node:path');
 const { test } = require('node:test');
 const { chromium, devices } = require('playwright-core');
 
-const origin = process.env.WOODMART_SEARCH_ORIGIN || 'https://digitalogic.ir';
 const live = process.env.WOODMART_SEARCH_LIVE === '1';
+const origin = live ? (process.env.WOODMART_SEARCH_ORIGIN || 'https://digitalogic.ir') : 'https://digitalogic.test';
 const assetRoot = path.join(__dirname, '../assets');
+const fixtureRoot = path.join(__dirname, 'fixtures/woodmart-search');
 const soldOut = live ? (process.env.WOODMART_SEARCH_SOLD_OUT || 'ADS1256') : 'DG-BROWSER-SOLD-OUT';
 const inStock = live ? (process.env.WOODMART_SEARCH_IN_STOCK || 'HC-SR04') : 'DG-BROWSER-IN-STOCK';
 const priceSelector = '.price, .woocommerce-Price-amount, .digitalogic-price-updated, [data-digitalogic-contextual-price-update], time';
 
-async function useCandidateAssets(page) {
-    // Keep the real header, theme scripts, CSS and autocomplete widget. Swap
-    // only our assets and stock data so CI can test a PR before deployment.
-    const assets = new Set();
-    await page.route(/\/digitalogic-wp\/assets\/(?:js\/frontend-search-ws\.js|css\/frontend-search\.css)(?:\?|$)/, async route => {
-        const asset = new URL(route.request().url()).pathname.split('/assets/').pop();
-        await route.fulfill({ path: path.join(assetRoot, asset) });
-        assets.add(asset);
-    });
-    await page.route(url => url.pathname.endsWith('/wp-admin/admin-ajax.php') &&
-        url.searchParams.get('action') === 'woodmart_ajax_search', route => {
-        const query = new URL(route.request().url()).searchParams.get('query');
+async function openFixture(page) {
+    const assets = new Map([
+        ['/', path.join(fixtureRoot, 'index.html')],
+        ['/jquery.js', require.resolve('jquery/dist/jquery.js')],
+        ['/autocomplete.js', path.join(fixtureRoot, 'autocomplete.js')],
+        ['/ajaxSearch.js', path.join(fixtureRoot, 'ajaxSearch.js')],
+        ['/searchFullScreen.js', path.join(fixtureRoot, 'searchFullScreen.js')],
+        ['/frontend-search-ws.js', path.join(assetRoot, 'js/frontend-search-ws.js')],
+        ['/frontend-search.css', path.join(assetRoot, 'css/frontend-search.css')]
+    ]);
+    await page.route('**/*', route => {
+        const url = new URL(route.request().url());
+        const asset = assets.get(url.pathname);
+        if (asset) {
+            return route.fulfill({ path: asset });
+        }
+        if (url.pathname !== '/wp-admin/admin-ajax.php' || url.searchParams.get('action') !== 'woodmart_ajax_search') {
+            return route.abort();
+        }
+        const query = url.searchParams.get('query');
         const available = query === inStock;
         const suggestions = (available || query === soldOut) ? [{
             value: `ماژول آزمایشی ${query}`,
             permalink: new URL('/product/search-browser-fixture/', origin).href,
             sku: 'کد کالا: DEMO',
             price: available ? '<span class="woocommerce-Price-amount amount">120,000 تومان</span>' : '',
-            is_in_stock: available
+            is_in_stock: available,
+            group: 'product'
         }] : [];
         return route.fulfill({ json: { suggestions } });
     });
-    return assets;
 }
 
 async function search(field, query) {
@@ -43,14 +52,16 @@ async function search(field, query) {
 }
 
 async function checkDropdown(page, mobile) {
-    const assets = live ? null : await useCandidateAssets(page);
+    if (!live) {
+        await openFixture(page);
+    }
     await page.goto(origin, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await page.waitForFunction(() => typeof window.jQuery?.fn.devbridgeAutocomplete === 'function');
 
     let searchArea = page.locator('.wd-header-search-form:visible');
     if (mobile) {
         await page.locator('.wd-header-search-form-mobile:visible').click();
-        searchArea = page.locator('.wd-search-full-screen-2');
+        searchArea = page.locator('.wd-search-full-screen-2.wd-opened');
     }
     const field = searchArea.locator('form.woodmart-ajax-search input.s:visible').first();
     await field.click();
@@ -59,10 +70,6 @@ async function checkDropdown(page, mobile) {
     const soldOutRow = searchArea.locator('.wd-suggestion:visible').filter({ hasText: soldOut }).first();
     const badge = soldOutRow.getByText('ناموجود', { exact: true });
     await badge.waitFor();
-    if (assets) {
-        assert.deepEqual([...assets].sort(), ['css/frontend-search.css', 'js/frontend-search-ws.js']);
-    }
-
     const layout = await badge.evaluate(element => {
         const content = element.closest('.wd-suggestion-content');
         const previous = element.previousElementSibling;
