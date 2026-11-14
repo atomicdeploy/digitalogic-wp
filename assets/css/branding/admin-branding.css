@@ -994,26 +994,50 @@ body.login .dg-username-password-step {
 }
 
 body.login .dg-username-login-summary {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-block: 0 12px;
-    padding: 9px 14px;
-    border: 1px solid var(--dg-border);
-    border-radius: 16px;
-    background: color-mix(in srgb, var(--dg-accent-soft) 54%, transparent);
+    display: grid;
+    justify-items: center;
+    gap: 8px;
+    margin-block: 4px 18px;
+    padding-block: 4px;
     color: var(--dg-heading);
-    font-size: 14px;
-    font-weight: 700;
+    text-align: center;
 }
 
 body.login .dg-username-login-value {
-    min-width: 0;
+    max-inline-size: 100%;
     overflow-wrap: anywhere;
+    font: 800 17px/1.5 var(--dg-font, system-ui, sans-serif);
 }
 
-body.login .dg-username-login-summary .dashicons {
+body.login .dg-username-login-avatar {
+    display: grid;
+    place-items: center;
+    inline-size: 64px;
+    block-size: 64px;
+    overflow: hidden;
+    border-radius: 50%;
+    background: var(--dg-accent-soft);
     color: var(--dg-accent-strong);
+}
+
+body.login .dg-username-login-avatar > * {
+    grid-area: 1 / 1;
+}
+
+body.login .dg-username-login-avatar > img {
+    inline-size: 100%;
+    block-size: 100%;
+    object-fit: cover;
+}
+
+body.login .dg-username-login-avatar > img[hidden],
+body.login .dg-username-login-avatar:has(> img:not([hidden])) > svg {
+    display: none;
+}
+
+body.login .dg-username-login-avatar > .dg-auth-icon {
+    inline-size: 28px;
+    block-size: 28px;
 }
 
 body.login .dg-digits-login-shell .digits-form_input_row.dg-username-password-row {

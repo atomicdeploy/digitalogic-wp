@@ -1493,7 +1493,7 @@
                 '<div class="digits-form_body_wrapper">',
                 '<div class="digits-form_tab_body digits-tab_active">',
                 '<div class="dg-username-login-summary">',
-                '<span class="dashicons dashicons-admin-users" aria-hidden="true"></span>',
+                '<span class="dg-username-login-avatar" aria-hidden="true"></span>',
                 '<bdi class="dg-username-login-value"></bdi>',
                 '</div>',
                 '<div class="digits-form_input_row dg-username-password-row">',
@@ -1538,6 +1538,22 @@
         step.hidden = false;
         step.style.display = '';
         step.querySelector('.dg-username-login-value').textContent = username;
+        var avatar = step.querySelector('.dg-username-login-avatar');
+        avatar.replaceChildren();
+        putAuthIcon(avatar, 'user');
+        var accounts = Array.isArray(config.rememberedAccounts) ? config.rememberedAccounts : [];
+        var account = [config.rememberedAccount].concat(accounts).find(function (candidate) {
+            return candidate && candidate.login === username;
+        });
+        if (account?.avatar) {
+            var photo = document.createElement('img');
+            photo.alt = '';
+            photo.hidden = true;
+            photo.addEventListener('load', function () { photo.hidden = false; }, { once: true });
+            photo.addEventListener('error', function () { photo.remove(); }, { once: true });
+            avatar.appendChild(photo);
+            photo.src = account.avatar;
+        }
         var password = step.querySelector('.dg-username-password-input');
         password.disabled = false;
         password.focus({ preventScroll: true });
