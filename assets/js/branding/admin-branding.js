@@ -1328,6 +1328,30 @@
         if (help) { help.hidden = false; }
     }
 
+    function createPasswordlessAction(captionId, onClick) {
+        var action = document.createElement('div');
+        action.className = 'dg-passwordless-action';
+
+        var button = document.createElement('button');
+        button.className = 'dg-skip-password';
+        button.type = 'button';
+        button.setAttribute('aria-describedby', captionId);
+        button.addEventListener('click', onClick);
+
+        var label = document.createElement('span');
+        label.className = 'dg-passwordless-label';
+        label.textContent = getLabel('skipPassword', 'Sign in without a password');
+        button.appendChild(label);
+        putAuthIcon(button, 'sms');
+
+        var caption = document.createElement('p');
+        caption.className = 'dg-passwordless-caption';
+        caption.id = captionId;
+        caption.textContent = getLabel('skipPasswordCaption', 'Forgot your password?');
+        action.append(button, caption);
+        return action;
+    }
+
     function prepareDigitsSkipPassword(form) {
         var wrapper = form.querySelector('.digits-form_tab_wrapper');
         var primary = form.querySelector('.digits-form_login > .digits-form_submit-btn');
@@ -1337,14 +1361,7 @@
         }
 
         form.dataset.dgSmsReady = 'true';
-        var skip = document.createElement('button');
-        skip.className = 'dg-skip-password';
-        skip.type = 'button';
-        skip.textContent = getLabel('skipPassword', 'Sign in without a password');
-        skip.title = getLabel('skipPasswordHelp', 'Sign in with an SMS code');
-        primary.after(skip);
-
-        skip.addEventListener('click', function () {
+        var action = createPasswordlessAction('dg-native-passwordless-caption', function () {
             var password = visibleDigitsPassword(form);
             var tab = digitsSmsTab(password);
             if (tab && form.dataset.dgPending !== 'true') {
@@ -1352,12 +1369,13 @@
                 startNativeDigitsSms(password, tab);
             }
         });
+        primary.after(action);
 
         function updateVisibility() {
             var password = visibleDigitsPassword(form);
             var tab = digitsSmsTab(password);
             var otp = visibleDigitsSmsInput(form);
-            skip.hidden = !tab;
+            action.hidden = !tab;
 
             if (form.dataset.dgSmsIdentity === 'true' && !form.classList.contains('digits_form_index_section')) {
                 delete form.dataset.dgSmsIdentity;
@@ -1435,7 +1453,6 @@
                 '<div class="dg-username-login-actions">',
                 '<button type="submit" class="digits-form_button digits-form_submit digits-form_submit-btn dg-username-login-submit"><span>' + escapeHtml(loginLabel) + '</span></button>',
                 '<button type="button" class="button dg-username-login-back"><span class="dashicons dashicons-arrow-left-alt" aria-hidden="true"></span><span>' + escapeHtml(backLabel) + '</span></button>',
-                '<button type="button" class="dg-skip-password" title="' + escapeHtml(getLabel('skipPasswordHelp', 'Sign in with an SMS code')) + '">' + escapeHtml(getLabel('skipPassword', 'Sign in without a password')) + '</button>',
                 '</div>',
                 '</div>',
                 '</div>'
@@ -1443,10 +1460,10 @@
             wrapper.appendChild(step);
             bindPasswordToggle();
 
-            step.querySelector('.dg-skip-password').addEventListener('click', function () {
+            step.querySelector('.dg-username-login-actions').appendChild(createPasswordlessAction('dg-identity-passwordless-caption', function () {
                 authRecovery = true;
                 showDigitsSmsIdentity(form);
-            });
+            }));
 
             step.querySelector('.dg-username-login-back').addEventListener('click', function () {
                 var password = step.querySelector('.dg-username-password-input');
@@ -3823,7 +3840,7 @@
             '.dg-passkey-options summary': 'more',
             '.dg-passkey-options .digits-form_passwordless_login': 'key',
             '.dg-passkey-options .digitalogic-call-toggle, [data-call-start]': 'phone',
-            '.dg-skip-password, .dg-otp-resend': 'sms',
+            '.dg-otp-resend': 'sms',
             '.digits-form_button_ic': 'arrow'
         };
         Object.keys(selectors).forEach(function (selector) {

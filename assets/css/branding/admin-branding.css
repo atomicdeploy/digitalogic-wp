@@ -1061,18 +1061,30 @@ body.login .dg-digits-login-shell form.dg-username-step-active .dg-username-pass
     display: inline-flex !important;
 }
 
-body.login .dg-digits-login-shell :is(.digits-form_login_separator, .digits-form_passwordless_login, .dg-skip-password[hidden]) {
+body.login .dg-digits-login-shell :is(.digits-form_login_separator, .digits-form_passwordless_login, .digits-form_show_forgot_password, .dg-passwordless-action[hidden]) {
     display: none !important;
 }
 
-body.login .dg-digits-login-shell .dg-skip-password {
+body.login .dg-digits-login-shell .dg-passwordless-action {
+    display: grid;
+    gap: 6px;
+    margin-block-start: 10px;
+}
+
+body.login .dg-username-login-actions > .dg-passwordless-action {
+    grid-column: 1 / -1;
+    margin-block-start: 0;
+}
+
+body.login .dg-digits-login-shell .dg-passwordless-action > .dg-skip-password {
     display: flex;
     align-items: center;
     justify-content: center;
+    column-gap: 10px;
     box-sizing: border-box;
     inline-size: 100%;
     min-block-size: 56px;
-    margin: 10px 0 0;
+    margin: 0;
     padding: 6px 12px;
     border: 1px solid var(--dg-border-strong);
     border-radius: 18px;
@@ -1084,9 +1096,15 @@ body.login .dg-digits-login-shell .dg-skip-password {
     cursor: pointer;
 }
 
-body.login .dg-username-login-actions .dg-skip-password {
-    grid-column: 1;
+body.login .dg-passwordless-label {
+    min-inline-size: 0;
+}
+
+body.login .dg-digits-login-shell .dg-passwordless-caption {
     margin: 0;
+    color: var(--dg-text-soft);
+    font: 500 13px/1.65 var(--dg-font, system-ui, sans-serif);
+    text-align: center;
 }
 
 body.login .dg-digits-login-shell .dg-skip-password:hover {
