@@ -2584,6 +2584,23 @@ body.login .language-switcher {
     margin-top: 12px;
 }
 
+body.login .dg-login-preferences {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    inline-size: min(100% - 32px, 460px);
+    margin: 0 auto 18px;
+}
+
+body.login .dg-login-preferences .language-switcher {
+    min-inline-size: 0;
+    margin: 0;
+}
+
 .dg-theme-toggle-button {
     min-width: 78px;
     min-height: 42px;
@@ -3659,6 +3676,10 @@ body.wp-admin .digitalogic-panel-page .button-hero {
     .dg-theme-toggle-button,
     .dg-language-apply {
         width: 100%;
+    }
+
+    .dg-login-preferences > .language-switcher {
+        inline-size: 100%;
     }
 
     .dg-dashboard-grid {
