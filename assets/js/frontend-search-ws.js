@@ -104,10 +104,14 @@
             formatResult: function(suggestion, query) {
                 var html = formatResult.call(this, suggestion, query);
                 if (suggestion.is_in_stock === false) {
+                    var result = document.createElement('template');
+                    result.innerHTML = html;
                     var badge = document.createElement('span');
-                    badge.className = 'stock out-of-stock';
+                    badge.className = 'digitalogic-search-stock';
                     badge.textContent = rootConfig.unavailable || 'ناموجود';
-                    html += badge.outerHTML;
+                    var content = result.content.querySelector('.wd-suggestion-content') || result.content;
+                    content.appendChild(badge);
+                    return result.innerHTML;
                 }
                 return html;
             },

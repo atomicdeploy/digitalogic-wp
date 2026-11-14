@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Woodmart product search fixture</title>
+    <link rel="stylesheet" href="/frontend-search.css">
+    <style>
+        body { margin: 24px; font: 16px/1.5 sans-serif; }
+        form { display: flex; }
+        input { min-width: 0; flex: 1; font: inherit; }
+        .wd-header-search-form { width: min(540px, 100%); }
+        .wd-header-search-form-mobile, .wd-search-full-screen-2, .wd-search-results { display: none; }
+        .wd-search-full-screen-2.wd-opened, .wd-search-results.wd-opened,
+        .wd-search-full-screen-2.wd-searched .wd-search-results { display: block; }
+        .wd-search-full-screen-2 { position: fixed; inset: 0; padding: 24px; background: white; }
+        .wd-suggestion { display: flex; position: relative; padding: 12px; }
+        .wd-suggestion-sku { margin: 4px 0 0; }
+        .wd-fill { position: absolute; inset: 0; }
+        @media (max-width: 767px) {
+            .wd-header-search-form { display: none; }
+            .wd-header-search-form-mobile { display: block; }
+        }
+    </style>
+    <script src="/jquery.js" defer></script>
+    <script src="/frontend-search-ws.js" defer></script>
+    <script src="/autocomplete.js" defer></script>
+    <script src="/ajaxSearch.js" defer></script>
+    <script src="/searchFullScreen.js" defer></script>
+    <script>
+        window.woodmart_settings = {
+            ajaxurl: '/wp-admin/admin-ajax.php',
+            ajax_search_delay: 100,
+            all_results: 'همه نتایج'
+        };
+        window.digitalogicFrontendSearchWs = {
+            ajax_url: '/wp-admin/admin-ajax.php',
+            websocket: { enabled: false },
+            unavailable: 'ناموجود'
+        };
+        // The theme shell normally provides these dependencies to both scripts.
+        window.woodmartThemeModule = {
+            get $document() { return jQuery(document); },
+            get $body() { return jQuery(document.body); },
+            wdElementorAddAction() {}
+        };
+    </script>
+</head>
+<body>
+    <div class="wd-header-search-form wd-search-form wd-display-form">
+        <form class="woodmart-ajax-search" action="/" data-count="20" data-post_type="product" data-symbols_count="3" data-price="1" data-sku="1">
+            <input type="text" class="s" name="s" aria-label="جستجوی محصولات" autocomplete="off">
+        </form>
+        <div class="wd-search-results wd-dropdown-results"><div class="wd-scroll-content"></div></div>
+    </div>
+    <div class="wd-header-search-form-mobile wd-search-form wd-display-full-screen-2">
+        <button type="button">جستجو</button>
+    </div>
+    <div class="wd-search-full-screen-2">
+        <div class="container">
+            <form class="woodmart-ajax-search" action="/" data-count="20" data-post_type="product" data-symbols_count="3" data-price="1" data-sku="1">
+                <input type="text" class="s" name="s" aria-label="جستجوی محصولات" autocomplete="off">
+            </form>
+            <div class="wd-search-results wd-scroll-content"></div>
+        </div>
+    </div>
+</body>
+</html>

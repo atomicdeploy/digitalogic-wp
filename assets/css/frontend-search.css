@@ -1,0 +1,12 @@
+.wd-suggestion .digitalogic-search-stock {
+    display: block;
+    width: fit-content;
+    margin-block-start: 4px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background-color: #fdf0ed;
+    color: #9b321f;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.5;
+}
