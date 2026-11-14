@@ -1361,15 +1361,22 @@
     function updateVerificationAction(form) {
         var primary = form.querySelector('.digits-form_login > .digits-form_submit-btn .digits-form_button-text');
         if (!primary || !form.classList.contains('digits_form_index_section')) { return; }
-        var shell = form.closest('.dg-digits-login-shell');
-        var mode = shell.dataset.dgIdentity;
-        var number = mode === 'phone' && phonePartsFromValue(digitsIdentityValue(form), form.querySelector('[name="login_digt_countrycode"]')?.value);
-        var call = number && (number.kind === 'FIXED_LINE' || (number.kind === 'FIXED_LINE_OR_MOBILE' && form.dataset.dgPhoneChannel === 'call'));
         var label = getLabel('continue', 'Continue');
-        if (!call && form.dataset.dgSmsIdentity === 'true') {
-            label = mode === 'email' ? getLabel('sendEmailCode', 'Send email code') : getLabel('sendSmsCode', 'Send SMS code');
+        if (form.dataset.dgSmsIdentity === 'true') {
+            var mode = form.closest('.dg-digits-login-shell').dataset.dgIdentity;
+            var identity = digitsIdentityValue(form);
+            if (mode === 'email' && emailDomain(identity)) {
+                label = getLabel('sendEmailCode', 'Send email code');
+            } else if (mode === 'phone') {
+                var number = phonePartsFromValue(identity, form.querySelector('[name="login_digt_countrycode"]')?.value);
+                if (number.valid && number.kind === 'MOBILE') {
+                    label = getLabel('sendSmsCode', 'Send SMS code');
+                }
+            }
         }
-        primary.textContent = label;
+        if (primary.textContent !== label) {
+            primary.textContent = label;
+        }
     }
 
     function createPasswordlessAction(captionId, onClick) {
@@ -3102,6 +3109,7 @@
         });
         emailInput.addEventListener('blur', function () { updateEmailFeedback?.(true); });
 
+        countryCode?.addEventListener('input', updatePhoneChannels);
         countryCode?.addEventListener('change', updatePhoneChannels);
 
         selectDigitsMode(classifyIdentity(phoneInput.value || emailInput.value), false);
