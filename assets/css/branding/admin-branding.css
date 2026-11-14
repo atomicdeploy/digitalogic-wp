@@ -2130,14 +2130,15 @@ body.login .dg-email-domain-status {
     display: flex;
     align-items: center;
     gap: 6px;
-    margin: 0 0 10px;
+    margin: 0;
+    padding-block-end: 16px;
     padding-inline: 3px;
     flex-wrap: wrap;
     color: var(--dg-text-soft);
     font: 600 13px/1.65 var(--dg-font, system-ui, sans-serif);
 }
 body.login .dg-email-domain-status:empty {
-    margin: 0;
+    padding-block-end: 0;
 }
 body.login .dg-email-domain-status > .dg-auth-icon {
     inline-size: 16px;
@@ -2234,6 +2235,9 @@ body.login .dg-otp-step .digits-form_input_row:has(.dg-otp-editor) {
     padding-inline: 0 !important;
     border: 0 !important;
     background: transparent !important;
+}
+body.login .dg-digits-login-shell .dg-otp-step:has(.digits-tab_active .dg-otp-editor + input[name="sms_otp"]) .digits-form_rememberme {
+    margin-block-end: 36px !important;
 }
 body.login .dg-otp-step .digits-form_resend_otp {
     display: flex;
