@@ -1,5 +1,5 @@
 {
-  "observed_at_utc": "2026-11-14T04:12:13.904140+00:00",
+  "observed_at_utc": "2026-11-14T04:38:07.737669+00:00",
   "source_branch": "feat/mobile-storefront-api",
   "deployment": "targeted files; no full-plugin replacement",
   "schemas": {
@@ -42,7 +42,7 @@
       "matches_working_source": true
     },
     "laravel/app/Http/Controllers/MobileCatalogController.php": {
-      "deployed_sha256": "7c2adc31b8cbb2bb86cf742ae3bde263cf51866d93d4d62858bed6c0cd280bee",
+      "deployed_sha256": "eacfc9f38c5067ad72365c557818723ec03e4d69055c3c2244564b2f6fe9e52d",
       "matches_working_source": true
     },
     "laravel/routes/internal.php": {
@@ -140,6 +140,10 @@
     "laravel/app/Services/MobileOrderPayment.php": {
       "deployed_sha256": "0c547b35ff0e67371db21f9d1182a459e6a53230f642f3a904c697a9ab508607",
       "matches_working_source": true
+    },
+    "laravel/app/Services/CatalogSearchPolicy.php": {
+      "deployed_sha256": "2ceb95e0f46c43eb015773953547acc40000180008c357460dbdbe24e7e8271b",
+      "matches_working_source": true
     }
   },
   "notes": [
@@ -171,6 +175,52 @@
     },
     "saved_price_provenance_hashes_unchanged": true,
     "real_customer_order_verified": false,
-    "isolated_checkout_acceptance": "in_progress"
+    "isolated_checkout_acceptance": {
+      "status": "passed",
+      "assertions": 34,
+      "woocommerce": "11.3.0",
+      "evidence_sha256": "e228762327e1b1b771343e90603370927a3f9eed4f48b52481f841e846a4a4e6",
+      "covers": [
+        "canonical quote and created BACS Woo order",
+        "immutable POST replay and GET recovery",
+        "owner order history and wrong-owner rejection",
+        "paid/cancelled transfer-details suppression",
+        "ordered cart clearing"
+      ],
+      "production_orders_created": 0,
+      "successful_ip_connections": 0,
+      "nonfixture_unix_connections": 0
+    }
+  },
+  "payment_readiness": {
+    "observed_at_utc": "2026-11-14T04:38:07.737669+00:00",
+    "bacs_enabled": true,
+    "instructions_present": true,
+    "account_count": 1,
+    "usable_identifier_count": 1,
+    "settings_changed_by_this_lane": false,
+    "real_customer_purchase_verified": false
+  },
+  "catalog_search": {
+    "archive_sha256": "c31c64e9fbb9ebeb90b831a62a0ebddcf17cbfcc3a4030985e0ba94cbe8b6c51",
+    "backup": "/var/backups/digitalogic-search-relevance.s03h4e04",
+    "focused_tests": 17,
+    "assertions": 69,
+    "canonical_query_checks": 13,
+    "live_checks": {
+      "exact_variation": true,
+      "persian_sku_parity": true,
+      "alias_order_parity": true,
+      "unavailable_leaks": 0
+    },
+    "exact_variation_id": 11944,
+    "exact_variation_parent_id": 14382,
+    "arduino_alias_total": 29,
+    "canonical_setting": "xts-woodmart-options.search_synonyms",
+    "setting_previously_empty": true,
+    "other_option_fields_preserved": true,
+    "setting_rows": 7,
+    "setting_sha256": "96303fe21b903eb396d1e7aa8289d86ca55fee8d45c5a2f7f600419219ee4a00",
+    "remaining": "No exclusive board/accessory classifier was inferred from mixed canonical taxonomy. Explicit customer sorts remain authoritative; rendered website synonym behavior is not claimed from option readback alone."
   }
 }

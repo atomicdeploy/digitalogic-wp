@@ -13,6 +13,7 @@ namespace Digitalogic\Laravel\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Digitalogic\Laravel\Services\CatalogSearchPolicy;
 
 /**
  * Public catalog projection. No private pricing metadata, tokens or customer data.
@@ -227,15 +228,17 @@ final class MobileCatalogController {
 	 * @return array Native adapter result.
 	 */
 	public static function normalizeQuery( array $input ): array {
-		$input = array_filter( $input, 'is_scalar' );
-		$sort  = (string) ( $input['orderby'] ?? 'date' );
-		$stock = (string) ( $input['stock_status'] ?? '' );
+		$input  = array_filter( $input, 'is_scalar' );
+		$search = CatalogSearchPolicy::normalize( (string) ( $input['search'] ?? '' ) );
+		$sort   = (string) ( $input['orderby'] ?? ( '' === $search ? 'date' : 'relevance' ) );
+		$stock  = (string) ( $input['stock_status'] ?? '' );
 		return array(
 			'page'         => max( 1, min( 500, (int) ( $input['page'] ?? 1 ) ) ),
 			'per_page'     => max( 1, min( 48, (int) ( $input['per_page'] ?? 24 ) ) ),
-			'search'       => mb_substr( sanitize_text_field( is_scalar( $input['search'] ?? '' ) ? (string) ( $input['search'] ?? '' ) : '' ), 0, 120 ),
+			'search'       => $search,
+			'search_terms' => CatalogSearchPolicy::terms( $search ),
 			'category'     => max( 0, (int) ( $input['category'] ?? 0 ) ),
-			'orderby'      => in_array( $sort, array( 'date', 'price', 'popularity', 'title' ), true ) ? $sort : 'date',
+			'orderby'      => in_array( $sort, array( 'date', 'price', 'popularity', 'title', 'relevance' ), true ) ? $sort : 'date',
 			'order'        => strtoupper( (string) ( $input['order'] ?? 'DESC' ) ) === 'ASC' ? 'ASC' : 'DESC',
 			'stock_status' => in_array( $stock, array( 'instock', 'outofstock', 'onbackorder' ), true ) ? $stock : '',
 			'has_images'   => in_array( (string) ( $input['has_images'] ?? '' ), array( '1', 'true' ), true ),
@@ -250,25 +253,36 @@ final class MobileCatalogController {
 	 */
 	private function productsData( array $query ): array {
 		global $wpdb;
-		$lookup     = $wpdb->prefix . 'wc_product_meta_lookup';
-		$where      = "p.post_type = 'product' AND p.post_status = 'publish' AND p.post_password = ''";
-		$values     = array();
+		$lookup = $wpdb->prefix . 'wc_product_meta_lookup';
+		$where  = "p.post_status = 'publish' AND p.post_password = ''";
+		$values = array();
+		$scope  = "CASE WHEN p.post_type='product_variation' THEN p.post_parent ELSE p.ID END";
+		if ( '' === $query['search'] ) {
+			$where .= " AND p.post_type='product'";
+		} else {
+			$where   .= " AND (p.post_type='product' OR (p.post_type='product_variation' AND l.sku=%s AND parent.post_type='product' AND parent.post_status='publish' AND parent.post_password=''))";
+			$values[] = $query['search'];
+		}
 		$visibility = '' === $query['search'] ? 'exclude-from-catalog' : 'exclude-from-search';
-		$where     .= " AND NOT EXISTS (SELECT 1 FROM {$wpdb->term_relationships} vr JOIN {$wpdb->term_taxonomy} vt ON vt.term_taxonomy_id=vr.term_taxonomy_id JOIN {$wpdb->terms} v ON v.term_id=vt.term_id WHERE vr.object_id=p.ID AND vt.taxonomy='product_visibility' AND v.slug=%s)";
+		$where     .= " AND NOT EXISTS (SELECT 1 FROM {$wpdb->term_relationships} vr JOIN {$wpdb->term_taxonomy} vt ON vt.term_taxonomy_id=vr.term_taxonomy_id JOIN {$wpdb->terms} v ON v.term_id=vt.term_id WHERE vr.object_id IN (p.ID,{$scope}) AND vt.taxonomy='product_visibility' AND v.slug=%s)";
 		$values[]   = $visibility;
 		if ( $query['has_images'] ) {
-			$where .= " AND EXISTS (SELECT 1 FROM {$wpdb->postmeta} image WHERE image.post_id=p.ID AND image.meta_key='_thumbnail_id' AND CAST(image.meta_value AS UNSIGNED)>0)";
+			$where .= " AND EXISTS (SELECT 1 FROM {$wpdb->postmeta} image WHERE image.post_id IN (p.ID,{$scope}) AND image.meta_key='_thumbnail_id' AND CAST(image.meta_value AS UNSIGNED)>0)";
 		}
 		if ( '' !== $query['search'] ) {
-			$where   .= ' AND (p.post_title LIKE %s OR l.sku LIKE %s)';
-			$values[] = '%' . $wpdb->esc_like( $query['search'] ) . '%';
+			$matches = array();
+			foreach ( $query['search_terms'] as $term ) {
+				$matches[] = 'p.post_title LIKE %s';
+				$values[]  = '%' . $wpdb->esc_like( $term ) . '%';
+			}
+			$where   .= ' AND (' . implode( ' OR ', $matches ) . ' OR l.sku LIKE %s)';
 			$values[] = '%' . $wpdb->esc_like( $query['search'] ) . '%';
 		}
 		if ( $query['category'] > 0 ) {
 			$children = get_term_children( $query['category'], 'product_cat' );
 			$ids      = array_merge( array( $query['category'] ), is_wp_error( $children ) ? array() : array_map( 'absint', $children ) );
 			$ids      = implode( ',', array_map( 'absint', $ids ) );
-			$where   .= " AND EXISTS (SELECT 1 FROM {$wpdb->term_relationships} cr JOIN {$wpdb->term_taxonomy} ct ON ct.term_taxonomy_id=cr.term_taxonomy_id WHERE cr.object_id=p.ID AND ct.taxonomy='product_cat' AND ct.term_id IN ({$ids}))";
+			$where   .= " AND EXISTS (SELECT 1 FROM {$wpdb->term_relationships} cr JOIN {$wpdb->term_taxonomy} ct ON ct.term_taxonomy_id=cr.term_taxonomy_id WHERE cr.object_id=({$scope}) AND ct.taxonomy='product_cat' AND ct.term_id IN ({$ids}))";
 		}
 		if ( '' !== $query['stock_status'] ) {
 			$where   .= ' AND l.stock_status=%s';
@@ -276,17 +290,25 @@ final class MobileCatalogController {
 		} elseif ( get_option( 'woocommerce_hide_out_of_stock_items' ) === 'yes' ) {
 			$where .= " AND l.stock_status != 'outofstock'";
 		}
-		$sorts = array(
+		$sorts        = array(
 			'date'       => 'p.post_date_gmt',
 			'price'      => 'l.min_price',
 			'popularity' => 'l.total_sales',
 			'title'      => 'p.post_title',
 		);
-		$order = $sorts[ $query['orderby'] ] . ' ' . $query['order'] . ', p.ID ' . $query['order'];
-		$from  = "FROM {$wpdb->posts} p LEFT JOIN {$lookup} l ON l.product_id=p.ID WHERE {$where}";
+		$order_values = array();
+		if ( 'relevance' === $query['orderby'] && '' !== $query['search'] ) {
+			$exact        = array_fill( 0, count( $query['search_terms'] ), 'p.post_title=%s' );
+			$prefix       = array_fill( 0, count( $query['search_terms'] ), 'p.post_title LIKE %s' );
+			$order        = 'CASE WHEN l.sku=%s THEN 0 WHEN (' . implode( ' OR ', $exact ) . ") THEN 1 ELSE 2 END ASC, CASE WHEN l.stock_status IN ('instock','onbackorder') THEN 0 ELSE 1 END ASC, CASE WHEN (" . implode( ' OR ', $prefix ) . ') THEN 0 ELSE 1 END ASC, l.total_sales DESC, p.post_date_gmt DESC, p.ID DESC';
+			$order_values = array_merge( array( $query['search'] ), $query['search_terms'], array_map( static fn( $term ) => $wpdb->esc_like( $term ) . '%', $query['search_terms'] ) );
+		} else {
+			$order = ( $sorts[ $query['orderby'] ] ?? $sorts['date'] ) . ' ' . $query['order'] . ', p.ID ' . $query['order'];
+		}
+		$from = "FROM {$wpdb->posts} p LEFT JOIN {$lookup} l ON l.product_id=p.ID LEFT JOIN {$wpdb->posts} parent ON parent.ID=p.post_parent AND p.post_type='product_variation' WHERE {$where}";
      // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- Only trusted table names and allowlisted sort fragments are interpolated.
 		$total = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) {$from}", $values ) );
-		$args  = array_merge( $values, array( $query['per_page'], ( $query['page'] - 1 ) * $query['per_page'] ) );
+		$args  = array_merge( $values, $order_values, array( $query['per_page'], ( $query['page'] - 1 ) * $query['per_page'] ) );
      // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- Filters and bounds are prepared; sort fields are allowlisted.
 		$ids = array_map( 'intval', $wpdb->get_col( $wpdb->prepare( "SELECT p.ID {$from} ORDER BY {$order} LIMIT %d OFFSET %d", $args ) ) );
 		if ( $ids ) {
