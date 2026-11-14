@@ -649,7 +649,7 @@ JS;
 			'otpIncomplete'         => 'کد تأیید را کامل وارد کنید.',
 			'otpResend'             => 'ارسال مجدد کد',
 			'heroSlide'             => 'نمایش تصویر %d',
-			'skipPasswordCaption'   => 'فراموشی رمز عبور',
+			'skipPasswordCaption'   => 'رمز خود را فراموش کرده اید؟',
 			'smsIdentity'           => 'برای دریافت کد، ایمیل یا شماره تلفن خود را وارد کنید.',
 			'sendSmsCode'           => 'ارسال کد پیامکی',
 			'sendEmailCode'         => 'ارسال کد به ایمیل',

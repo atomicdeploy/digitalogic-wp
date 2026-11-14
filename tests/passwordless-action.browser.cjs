@@ -14,15 +14,31 @@ async function checkAction(page, labels, direction) {
     const button = action.getByRole('button', { name: labels.skipPassword, exact: true });
     const caption = action.getByText(labels.skipPasswordCaption, { exact: true });
     assert.equal(await caption.evaluate(element => element.tagName === 'P' && !element.closest('button')), true);
-    assert.equal(await caption.locator('svg.dg-auth-icon--reset').count(), 1);
+    assert.equal(await caption.locator('svg').count(), 0);
     assert.equal(await button.getAttribute('aria-describedby'), await caption.getAttribute('id'));
     assert.equal(await page.getByRole('button', { name: labels.skipPasswordCaption, exact: true }).count(), 0);
     assert.equal(await page.getByRole('link', { name: labels.skipPasswordCaption, exact: true }).count(), 0);
 
-    assert.ok(await caption.evaluate(element => {
+    const layout = await caption.evaluate(element => {
         const button = element.nextElementSibling;
-        return button?.matches('.dg-skip-password') && element.getBoundingClientRect().bottom < button.getBoundingClientRect().top;
-    }), 'The caption must be a separate element visibly above the button');
+        const previousAction = element.parentElement.previousElementSibling;
+        const captionRect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        const colorProbe = document.createElement('span');
+        colorProbe.style.color = 'var(--dg-text)';
+        element.appendChild(colorProbe);
+        const mainTextColor = style.color === getComputedStyle(colorProbe).color;
+        colorProbe.remove();
+        return {
+            aboveButton: button?.matches('.dg-skip-password') && captionRect.bottom < button.getBoundingClientRect().top,
+            spaceAbove: captionRect.top - previousAction.getBoundingClientRect().bottom,
+            fontSize: parseFloat(style.fontSize),
+            mainTextColor
+        };
+    });
+    assert.ok(layout.aboveButton, 'The caption must be a separate element visibly above the button');
+    assert.ok(layout.spaceAbove >= 18, 'Give the caption room after the preceding action');
+    assert.ok(layout.fontSize >= 15 && layout.mainTextColor, 'The caption should be clearly legible');
     await checkIconAndLabel(button, direction);
     return button;
 }
@@ -157,7 +173,7 @@ async function checkOtpEditor(page, channel) {
     const browser = await chromium.launch(process.env.DG_BROWSER_CHANNEL ? { channel: process.env.DG_BROWSER_CHANNEL } : {});
     try {
         for (const [direction, width, skipPassword, skipPasswordCaption] of [
-            ['rtl', 390, 'ورود بدون رمز عبور', 'فراموشی رمز عبور'],
+            ['rtl', 390, 'ورود بدون رمز عبور', 'رمز خود را فراموش کرده اید؟'],
             ['ltr', 1024, 'Sign in without a password', 'Forgot your password?']
         ]) {
             const labels = {

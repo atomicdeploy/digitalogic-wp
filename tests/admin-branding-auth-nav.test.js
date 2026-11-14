@@ -227,7 +227,7 @@ test('client validation rejection does not schedule a misleading registration ti
 test('skip password selects the native SMS tab without sending the typed password', () => {
     let update;
     const harness = createHarness({
-        labels: {skipPassword: 'ورود بدون رمز عبور', skipPasswordCaption: 'فراموشی رمز عبور'},
+        labels: {skipPassword: 'ورود بدون رمز عبور', skipPasswordCaption: 'رمز خود را فراموش کرده اید؟'},
         MutationObserver: class {
             constructor(callback) { update = callback; }
             observe() {}
@@ -271,7 +271,7 @@ test('skip password selects the native SMS tab without sending the typed passwor
     assert.equal(icon.tagName, 'svg');
     assert.equal(label.textContent, 'ورود بدون رمز عبور');
     assert.equal(caption.tagName, 'p');
-    assert.equal(caption.textContent, 'فراموشی رمز عبور');
+    assert.equal(caption.textContent, 'رمز خود را فراموش کرده اید؟');
     assert.equal(skip.attributes.get('aria-describedby'), caption.id);
     assert.equal(action.hidden, true);
     password.offsetWidth = 200;
