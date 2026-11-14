@@ -1564,10 +1564,10 @@
 
         function updateRememberMe(finalStep) {
             if (!rememberInput) { return; }
-            var dial = shell?.querySelector('.dg-call-unified [data-call-instructions]:not([hidden]) [data-call-dial]');
-            var anchor = dial || form.querySelector('.dg-username-password-step:not([hidden]) .dg-username-login-actions') || primary;
+            var callAnchor = shell?.querySelector('.dg-call-unified [data-call-instructions]:not([hidden]) :is([data-call-remember-anchor], a[data-call-dial])');
+            var anchor = callAnchor || form.querySelector('.dg-username-password-step:not([hidden]) .dg-username-login-actions') || primary;
             if (remember.nextElementSibling !== anchor) { anchor.before(remember); }
-            remember.hidden = !dial && !finalStep;
+            remember.hidden = !callAnchor && !finalStep;
             if (remember.hidden) { rememberInput.checked = false; }
         }
 

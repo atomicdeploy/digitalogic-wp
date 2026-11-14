@@ -2319,7 +2319,6 @@ body.login .dg-call-code-digit {
     font-variant-numeric: tabular-nums;
 }
 body.login .dg-call-wait,
-body.login .dg-call-dial,
 body.login .dg-call-unified .dg-auth-back {
     display: flex;
     align-items: center;
@@ -2329,14 +2328,31 @@ body.login .dg-call-wait {
     justify-content: space-between;
     color: var(--dg-text-soft);
 }
-body.login .dg-call-dial {
-    justify-content: center;
-    min-block-size: 56px;
-    border-radius: 18px;
-    background: linear-gradient(135deg, var(--dg-accent), var(--dg-accent-strong));
-    color: #fff !important;
-    text-decoration: none;
-    font-weight: 800;
+body.login .dg-call-steps {
+    display: grid;
+    gap: 14px;
+    margin: 0;
+    padding-inline-start: 1.65em;
+}
+body.login .dg-call-steps li::marker {
+    color: var(--dg-accent-strong);
+    font-weight: 700;
+}
+body.login .dg-call-steps strong {
+    font-weight: 750;
+    color: var(--dg-heading);
+}
+body.login .dg-call-steps p {
+    color: var(--dg-text-soft);
+    font-size: 14px;
+}
+body.login .dg-call-number {
+    display: block;
+    margin-block: 3px;
+    color: var(--dg-heading);
+    font: 800 20px/1.4 var(--dg-auth-digits, var(--dg-font));
+    font-variant-numeric: tabular-nums;
+    text-align: start;
 }
 body.login .dg-call-unified .digitalogic-call-icon {
     inline-size: 20px;

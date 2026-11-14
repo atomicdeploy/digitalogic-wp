@@ -796,11 +796,11 @@ async function runAgi(dependencies = {}) {
 }
 
 if (require.main === module) {
-	runAgi({ mode: process.argv[2] }).then((exitCode) => {
-		process.exitCode = exitCode;
-	}).catch(() => {
-		process.exitCode = EXIT.PROTOCOL;
-	});
+	// Asterisk keeps stdin open until the AGI process exits.
+	runAgi({ mode: process.argv[2] }).then(
+		(exitCode) => process.exit(exitCode),
+		() => process.exit(EXIT.PROTOCOL),
+	);
 }
 
 module.exports = {

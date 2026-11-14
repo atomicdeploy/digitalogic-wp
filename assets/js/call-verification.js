@@ -304,6 +304,19 @@
 						) {
 							return;
 						}
+						if (isBrandedLogin()) {
+							const redirect = new URLSearchParams(window.location.search).get('redirect_to') || '';
+							const query = new URLSearchParams({ redirect_to: redirect });
+							const url = `${config.challengeUrl}/${encodeURIComponent(expectedChallengeId)}?${query}`;
+							const recovered = await request(url, { headers: headers(expectedCsrfToken) }).catch(() => null);
+							if (stopped || expectedGeneration !== attemptGeneration || expectedChallengeId !== challengeId) {
+								return;
+							}
+							if (recovered?.redirect_url) {
+								window.location.assign(recovered.redirect_url);
+								return;
+							}
+						}
 						resetForRetry(consumeError.message);
 					}
 					return;
@@ -453,7 +466,7 @@
 					const display = String(data.dial.display || '');
 					const tel = String(data.dial.tel || '');
 					dialNumber.textContent = display;
-					if (/^\+?[0-9]+$/.test(tel)) {
+				if (dial.matches('a') && /^\+?[0-9]+$/.test(tel)) {
 						dial.setAttribute('href', `tel:${tel}`);
 					}
 				}
@@ -485,7 +498,6 @@
 
 		if (unified) {
 			addIcon(codeTitle, 'keypad');
-			addIcon(dial, 'phone');
 			addIcon(cancel, 'back');
 			window.DigitalogicCallLogin = {
 				start(value) {

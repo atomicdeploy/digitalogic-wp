@@ -105,3 +105,15 @@ test('cancel is disabled once verified proof consumption becomes irreversible', 
 	assert.ok(retryReset > -1);
 	assert.match(source.slice(disableCancel, consumeCall), /busyRegion\.setAttribute\('aria-busy', 'true'\)/);
 });
+
+test('a lost consume response recovers the server-confirmed return for the same challenge', () => {
+	const start = source.indexOf('catch (consumeError)');
+	const end = source.indexOf('resetForRetry(consumeError.message);', start);
+	const recovery = source.slice(start, end);
+
+	assert.match(recovery, /if \(isBrandedLogin\(\)\)/);
+	assert.match(recovery, /new URLSearchParams\(\{ redirect_to: redirect \}\)/);
+	assert.match(recovery, /request\(url, \{ headers: headers\(expectedCsrfToken\) \}\)/);
+	assert.match(recovery, /await request[\s\S]*?expectedChallengeId !== challengeId[\s\S]*?if \(recovered\?\.redirect_url\)/);
+	assert.match(recovery, /window\.location\.assign\(recovered\.redirect_url\)/);
+});

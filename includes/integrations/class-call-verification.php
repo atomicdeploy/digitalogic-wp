@@ -542,11 +542,36 @@ final class Digitalogic_Call_Verification {
 	 * @return WP_REST_Response|WP_Error
 	 */
 	public function challenge_status( WP_REST_Request $request ) {
-		return $this->read_challenge_status(
-			(string) $request->get_param( 'id' ),
-			$this->browser_binding( false ),
-			(string) $request->get_header( self::CSRF_HEADER )
-		);
+		$id      = (string) $request->get_param( 'id' );
+		$binding = $this->browser_binding( false );
+		$csrf    = (string) $request->get_header( self::CSRF_HEADER );
+		$result  = $this->read_challenge_status( $id, $binding, $csrf );
+		if ( is_wp_error( $result ) || null === $request->get_param( 'redirect_to' ) || ! $this->same_origin( $request ) ) {
+			return $result;
+		}
+		$data = $result->get_data();
+		if ( 'consumed' !== $data['status'] ) {
+			return $result;
+		}
+
+		// REST sets the current user to zero without a nonce. Check the signed
+		// login cookie directly when the browser lost the consume response.
+		$user_id = (int) wp_validate_auth_cookie( '', 'logged_in' );
+		if ( $user_id < 1 ) {
+			return $result;
+		}
+		$row = $this->find_bound_challenge( $id, $binding, $csrf );
+		if ( is_wp_error( $row ) || 'login' !== $row->purpose || 'consumed' !== $row->status
+			|| strtotime( (string) $row->consume_deadline . ' UTC' ) < time() ) {
+			return $result;
+		}
+		$phone = self::decrypt( (string) $row->phone_encrypted );
+		$user  = '' !== $phone ? $this->resolve_login_user( $phone, (string) $row->phone_hash ) : null;
+		if ( $user instanceof WP_User && $user_id === $user->ID ) {
+			$data['redirect_url'] = self::login_destination( $request->get_param( 'redirect_to' ) );
+			$result->set_data( $data );
+		}
+		return $result;
 	}
 
 	/**
@@ -1586,13 +1611,20 @@ final class Digitalogic_Call_Verification {
 			<div class="digitalogic-call-panel" role="region" aria-labelledby="digitalogic-call-code-title" hidden>
 				<div class="digitalogic-call-instructions" data-call-instructions hidden>
 					<h2 class="digits-form_heading" id="digitalogic-call-code-title" tabindex="-1" data-call-code-title><?php echo esc_html( $persian ? 'کد تأیید' : 'Verification code' ); ?></h2>
-					<p><?php echo esc_html( $persian ? 'از همان شماره‌ای که وارد کردید با دیجیتالاجیک تماس بگیرید و کد زیر را با صفحه‌کلید تلفن وارد کنید.' : 'Call Digitalogic from the number you entered, then enter this code on your phone keypad.' ); ?></p>
-					<output data-call-code dir="ltr"></output>
-					<div class="dg-call-wait"><p data-call-status role="status"><?php echo esc_html( $persian ? 'در انتظار تماس شما…' : 'Waiting for your call…' ); ?></p><span data-call-countdown role="timer" dir="ltr"></span></div>
-					<a class="dg-call-dial" data-call-dial href="tel:<?php echo esc_attr( self::DIAL_TEL ); ?>" aria-label="<?php echo esc_attr( $persian ? 'تماس با دیجیتالاجیک' : 'Call Digitalogic' ); ?>">
-						<span data-call-dial-number dir="ltr"><?php echo esc_html( self::DIAL_DISPLAY ); ?></span>
-					</a>
+					<ol class="dg-call-steps">
+						<li>
+							<strong><?php echo esc_html( $persian ? 'با دیجیتالاجیک تماس بگیرید' : 'Call Digitalogic' ); ?></strong>
+							<bdi class="dg-call-number" data-call-dial dir="ltr"><?php echo esc_html( self::DIAL_DISPLAY ); ?></bdi>
+							<p><?php echo esc_html( $persian ? 'از همان شماره‌ای که وارد کردید تماس بگیرید.' : 'Call from the same number you entered.' ); ?></p>
+						</li>
+						<li>
+							<strong><?php echo esc_html( $persian ? 'کد تأیید را با صفحه‌کلید تلفن وارد کنید' : 'Enter the verification code on your phone keypad' ); ?></strong>
+							<p><?php echo esc_html( $persian ? 'پس از شنیدن «دوست عزیزم»، شش رقم زیر را وارد کنید.' : 'After you hear «دوست عزیزم», enter the six digits below.' ); ?></p>
+						</li>
+					</ol>
+					<div class="dg-call-wait" data-call-remember-anchor><p data-call-status role="status"><?php echo esc_html( $persian ? 'در انتظار تماس شما…' : 'Waiting for your call…' ); ?></p><span data-call-countdown role="timer" dir="ltr"></span></div>
 					<button type="button" class="dg-auth-back" data-call-cancel><span><?php echo esc_html( $persian ? 'ویرایش شماره تلفن' : 'Edit phone number' ); ?></span></button>
+					<output data-call-code dir="ltr"></output>
 				</div>
 			</div>
 		</section>

@@ -1,10 +1,8 @@
 # Security invariants
 
-1. Current TCI s/_X inbound paths must not invoke preflight; they route directly
-   to extension 101. A future approved IVR must snapshot ANI before
+1. Both TCI inbound paths invoke preflight. Snapshot ANI before
    `prefix-tci-callerid` mutates it and use trusted literal DID `+982166754123`.
-2. The dormant helper must remain unreachable from public and internal paths. If
-   enabled in the future, initialize `PBX_VERIFY_PENDING=0` before AGI and make
+2. Initialize `PBX_VERIFY_PENDING=0` before AGI and make
    every lookup/config/network/protocol failure reach the operator without audio.
 3. Pending lookup is a separate, path-bound signed POST. Its request has exactly
    `schema`, `site_id`, `event_id`, `call_id`, `called_number`, `caller_number`, and
@@ -15,8 +13,7 @@
 5. Shortcut DTMF is collected only through AGI `STREAM FILE`/`WAIT FOR DIGIT`;
    normal private verification uses AGI `GET DATA`. Never place a code in a channel
    variable, wrapper argument, `NoOp`, `Verbose`, `System`, CDR, URL, or log.
-6. No current inbound path answers for verification. If the shortcut is enabled
-   in a future IVR, answer only after a positive pending result, then run
+6. Answer for verification only after a positive pending result, then run
    `StopMixMonitor()` before private collection. Keep AGI/DTMF debug off.
 7. The helper contexts must not be included from `from-internal` or exposed as a
    SIP feature code. Digitalogic has no approved public IVR digit.
