@@ -397,6 +397,7 @@ final class Digitalogic_Plugin_Auth_Routes {
 
 		echo '<div class="dg-digits-login-shell dg-digits-auto-identity">';
         echo self::digits_login_form_html($redirect_to); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		do_action( 'digitalogic_branded_login_content' );
         echo '</div>';
 
         self::render_login_footer();
