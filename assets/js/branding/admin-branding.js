@@ -1385,21 +1385,15 @@
         var label = document.createElement('span');
         label.className = 'dg-passwordless-label';
         label.textContent = getLabel('skipPassword', 'Sign in without a password');
-        var copy = document.createElement('span');
-        copy.className = 'dg-passwordless-copy';
-        copy.appendChild(label);
+        button.appendChild(label);
+        putAuthIcon(button, 'sms');
 
-        var caption = document.createElement('span');
+        var caption = document.createElement('p');
         caption.className = 'dg-passwordless-caption';
         caption.id = captionId;
         caption.textContent = getLabel('skipPasswordCaption', 'Forgot your password?');
         putAuthIcon(caption, 'reset');
-        button.setAttribute('aria-labelledby', captionId + '-label');
-        label.id = captionId + '-label';
-        copy.appendChild(caption);
-        button.appendChild(copy);
-        putAuthIcon(button, 'sms');
-        action.appendChild(button);
+        action.append(caption, button);
         return action;
     }
 

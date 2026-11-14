@@ -1147,8 +1147,10 @@ body.login .dg-passwordless-label {
 body.login .dg-digits-login-shell .dg-passwordless-caption {
     display: flex;
     align-items: center;
-    gap: 4px;
+    justify-content: flex-start;
+    gap: 6px;
     margin: 0;
+    padding-inline: 6px;
     color: var(--dg-text-soft);
     font: 500 12px/1.45 var(--dg-font, system-ui, sans-serif);
 }
@@ -1156,12 +1158,6 @@ body.login .dg-passwordless-caption > .dg-auth-icon {
     inline-size: 13px;
     block-size: 13px;
     flex-basis: 13px;
-}
-
-body.login .dg-passwordless-copy {
-    display: grid;
-    gap: 2px;
-    text-align: start;
 }
 
 body.login .dg-digits-login-shell .dg-skip-password:hover {
