@@ -4369,6 +4369,7 @@ require_once dirname(__DIR__) . '/includes/class-digitalogic-pricing-coordinator
 require_once dirname(__DIR__) . '/includes/class-digitalogic-currency-admin-async.php';
 require_once dirname(__DIR__) . '/includes/class-command-dispatcher.php';
 require_once dirname(__DIR__) . '/includes/api/class-rest-api.php';
+require_once dirname(__DIR__) . '/includes/integrations/class-digitalogic-persian-time-formatter.php';
 require_once dirname(__DIR__) . '/includes/api/class-webhooks.php';
 require_once dirname(__DIR__) . '/includes/class-report-engine.php';
 require_once dirname( __DIR__ ) . '/includes/class-digitalogic-pricing-snapshot.php';
