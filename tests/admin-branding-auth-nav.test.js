@@ -256,7 +256,8 @@ test('skip password selects the native SMS tab without sending the typed passwor
     const form = {
         dataset: {},
         classList: fakeClassList(),
-        querySelector: (selector) => selector === '.digits-form_tab_wrapper' ? wrapper : primary,
+        querySelector: (selector) => selector === '.digits-form_tab_wrapper' ? wrapper : (selector === '.digits-form_rememberme' ? null : primary),
+        closest: () => null,
         querySelectorAll: (selector) => selector.includes('_otp') ? [] : [password],
         addEventListener() {}
     };
@@ -285,7 +286,7 @@ test('skip password selects the native SMS tab without sending the typed passwor
     assert.equal(action.hidden, true);
 });
 
-test('WebOTP can receive the code before the SMS response and submits once the Digits field is ready', async () => {
+test('WebOTP fills a code received before the SMS response without skipping Remember me', async () => {
     let receive;
     let submitted = 0;
     let request;
@@ -305,6 +306,7 @@ test('WebOTP can receive the code before the SMS response and submits once the D
         matches: () => true,
         closest: () => ({}),
         offsetWidth: 200,
+        querySelector: () => ({}),
         querySelectorAll: (selector) => selector.includes('sms_otp') ? [otp] : [primary]
     };
     harness.document.activeElement = {closest: () => form};
@@ -325,7 +327,7 @@ test('WebOTP can receive the code before the SMS response and submits once the D
     assert.equal(payload.data.auto_fill, false);
     assert.equal(payload.data.check_remote_status, false);
     assert.equal(otp.value, '123456');
-    assert.equal(submitted, 1);
+    assert.equal(submitted, 0);
     assert.equal(signal.aborted, true);
 });
 

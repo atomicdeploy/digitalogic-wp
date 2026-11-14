@@ -224,11 +224,16 @@
 		}
 
 		async function consume(expectedGeneration, expectedChallengeId, expectedCsrfToken) {
-			const redirect = isBrandedLogin() ? new URLSearchParams(window.location.search).get('redirect_to') : '';
+			const body = {};
+			if (isBrandedLogin()) {
+				const redirect = new URLSearchParams(window.location.search).get('redirect_to');
+				if (redirect) { body.redirect_to = redirect; }
+				if (unified && widget.querySelector('input[name="rememberme"]:checked')) { body.rememberme = true; }
+			}
 			const data = await request(`${config.challengeUrl}/${encodeURIComponent(expectedChallengeId)}/consume`, {
 				method: 'POST',
 				headers: headers(expectedCsrfToken, purpose === 'add_contact'),
-				body: redirect ? JSON.stringify({ redirect_to: redirect }) : '{}',
+				body: JSON.stringify(body),
 			});
 			if (
 				stopped

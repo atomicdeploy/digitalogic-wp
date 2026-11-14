@@ -884,7 +884,7 @@ final class CallVerificationTest extends TestCase {
         $this->assertStringContainsString('MAX_CONTACTS_PER_KIND = 10', $source);
 		$this->assertStringNotContainsString("'digits_phone_no','billing_phone'", $source);
 		$this->assertStringContainsString("meta_key IN ('digits_phone','digits_phone_no')", $source);
-		$this->assertStringContainsString( 'wp_set_auth_cookie( $user->ID, false, is_ssl() )', $source );
+		$this->assertStringContainsString( "wp_set_auth_cookie( \$user->ID, true === \$request->get_param( 'rememberme' ), is_ssl() )", $source );
 		$this->assertStringContainsString("'digitalogic_call_rate' === \$reservation->get_error_code()", $source);
 		$challengeUpdate = strpos( $source, '$updated = $wpdb->query' );
 		$challengeWriteError = strpos( $source, 'if ( false === $updated )', $challengeUpdate );

@@ -1,6 +1,6 @@
 # Digitalogic authentication
 
-- Keep username, email, and mobile on one visible sign-in field in the branded card. Digits can keep separate provider inputs internally. On every entry URL and after switching forms, show only the active field and one Remember me control in its own row.
+- Keep username, email, and mobile on one visible sign-in field in the branded card. Digits can keep separate provider inputs internally. Show one Remember me checkbox in its own row on the final password, OTP, or call sign-in step. When WebOTP fills a code on a step with that checkbox, let the user submit after choosing whether to remember the device.
 - Keep the placeholder and accessible name in sync with the identity mode. Show «شماره تلفن» when the user enters a phone number. An empty passwordless contact field asks for email or phone. Restore the general prompt on return to an empty sign-in field.
 - Keep sign-in, signup, and password recovery in the same card. A new mobile identity must flow into native Digits signup and OTP confirmation without an extra “Not a member yet?” prompt. Show the optional new-password dialog only after successful verification establishes a session. Skipping the dialog must resume the original destination.
 - Put account actions beside the form they affect. Keep the passkey action under other sign-in methods. Use one divider style for “Or” and “Or continue with.” Align field icons to the input direction, including LTR phone, email, and password fields on Persian pages.

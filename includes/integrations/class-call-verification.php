@@ -732,7 +732,7 @@ final class Digitalogic_Call_Verification {
 
 		if ( $user instanceof WP_User ) {
 			wp_set_current_user( $user->ID, $user->user_login );
-			wp_set_auth_cookie( $user->ID, false, is_ssl() );
+			wp_set_auth_cookie( $user->ID, true === $request->get_param( 'rememberme' ), is_ssl() );
 			do_action( 'wp_login', $user->user_login, $user );
 
 			return new WP_REST_Response(
