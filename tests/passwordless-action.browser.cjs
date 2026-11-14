@@ -162,11 +162,21 @@ async function checkEmailGate(page, labels) {
         colors.add(await status.evaluate(element => getComputedStyle(element).color));
     }
     assert.equal(await primary.isDisabled(), true);
-    await phone.fill('0912');
+    await phone.pressSequentially('09');
+    assert.equal(await phone.inputValue(), '9', 'The separate +98 prefix replaces the domestic zero as soon as it is unambiguous');
+    await phone.pressSequentially('12');
+    assert.equal(await phone.inputValue(), '912');
+    assert.equal(await phone.evaluate(input => input.selectionStart), 3);
     assert.equal(await primary.isDisabled(), true);
-    await phone.fill('09120000000');
+    await phone.pressSequentially('0000000');
     assert.equal(await primary.isEnabled(), true);
     assert.equal(await primary.innerText(), labels.sendSmsCode);
+    await phone.fill('۰۲۱');
+    assert.equal(await phone.inputValue(), '21', 'Iranian landlines also lose the domestic zero while incomplete');
+    assert.equal(await primary.isDisabled(), true);
+    await phone.fill('');
+    await phone.pressSequentially('0044');
+    assert.equal(await phone.inputValue(), '0044', 'Keep 00 available for an international number');
     await phone.fill('+12025550123');
     assert.equal(await primary.innerText(), labels.continueBySms);
     await page.locator('input[name="dg_phone_channel"][value="call"]').check();

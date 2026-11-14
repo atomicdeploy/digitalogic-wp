@@ -640,10 +640,12 @@
     function phonePartsFromValue(value, selectedCountry) {
         var normalized = normalizeDigits(value).trim();
         var compact = normalized.replace(/[\s().-]+/g, '');
+        var country = selectedCountry || '+98';
+        // The picker already displays +98. Wait for the second digit so a typed 00 can still start an international number.
+        var iranTrunkPrefix = country === '+98' && /^0[1-9]\d*$/.test(compact);
         if (window.libphonenumber && /^(?:\+\d*|\d+)$/.test(compact)) {
             var explicit = /^(?:\+|00)/.test(compact);
             var candidate = compact.replace(/^00/, '+');
-            var country = selectedCountry || '+98';
             var countries = window.libphonenumber.getCountries();
             var region = country === '+98' ? 'IR' : countries.find(function (code) {
                 return '+' + window.libphonenumber.getCountryCallingCode(code) === country;
@@ -654,7 +656,8 @@
                 return { type: 'phone', national: parsed.nationalNumber, normalized: normalized, valid: true,
                     countryCode: '+' + parsed.countryCallingCode, kind: parsed.getType(), e164: parsed.number };
             }
-            return { type: 'phone', national: compact, normalized: normalized, valid: false, countryCode: country };
+            return { type: 'phone', national: iranTrunkPrefix ? compact.slice(1) : compact,
+                normalized: normalized, valid: false, countryCode: country };
         }
         var numeric = compact.replace(/[^\d+]/g, '');
         var digits = numeric.replace(/\D/g, '');
@@ -672,7 +675,7 @@
         } else if (digits.indexOf('98') === 0 && (explicitInternational || digits.length > 10)) {
             national = digits.slice(2);
             matchedCountry = '+98';
-        } else if (!explicitInternational && digits.indexOf('0') === 0 && digits.length > 1) {
+        } else if (iranTrunkPrefix) {
             national = digits.slice(1);
             matchedCountry = '+98';
         } else if (explicitInternational) {
