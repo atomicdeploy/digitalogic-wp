@@ -103,6 +103,7 @@
 		const countdown = widget.querySelector('[data-call-countdown]');
 		const codeTitle = widget.querySelector('[data-call-code-title]');
 		const back = widget.querySelector('[data-call-back]');
+		const unified = widget.hasAttribute?.('data-call-unified') || false;
 		if (!panel || !phone || !start || !instructions || !code || !status || !error) {
 			return;
 		}
@@ -120,7 +121,7 @@
 			addIcon(cancel, 'back');
 		}
 		const entryTitle = entry?.querySelector('h2');
-		const busyRegion = entry ? panel : widget;
+		const busyRegion = entry || unified ? panel : widget;
 		let challengeId = '';
 		let csrfToken = '';
 		let pollTimer = 0;
@@ -135,6 +136,16 @@
 
 		function showStep(step) {
 			instructions.hidden = step !== 'code';
+			if (unified) {
+				panel.hidden = step !== 'code';
+				widget.closest('.dg-digits-login-shell')?.classList.toggle('dg-call-code-active', step === 'code');
+				if (step === 'code') {
+					codeTitle.focus();
+				} else {
+					widget.closest('.dg-digits-login-shell')?.querySelector('form.digloginpage [name="digits_phone"]')?.focus();
+				}
+				return;
+			}
 			if (!entry) {
 				return;
 			}
@@ -150,6 +161,9 @@
 		function showError(value) {
 			error.textContent = value || messages.error || 'Verification failed.';
 			error.hidden = false;
+			if (unified) {
+				widget.dispatchEvent(new CustomEvent('digitalogic:call-error', { bubbles: true, detail: error.textContent }));
+			}
 		}
 
 		function stopPolling() {
@@ -419,6 +433,17 @@
 					window.DigitalogicAuthRealtime?.refreshBinding();
 				}
 				code.textContent = data.code;
+				if (unified && /^[0-9]{6}$/.test(String(data.code))) {
+					code.classList.add('dg-otp-editor', 'dg-call-code-slots');
+					code.setAttribute('aria-label', String(data.code));
+					code.replaceChildren(...Array.from(String(data.code), (digit) => {
+						const cell = document.createElement('span');
+						cell.className = 'dg-call-code-digit';
+						cell.setAttribute('aria-hidden', 'true');
+						cell.textContent = digit;
+						return cell;
+					}));
+				}
 				if (dialNumber && data.dial) {
 					const display = String(data.dial.display || '');
 					const tel = String(data.dial.tel || '');
@@ -429,7 +454,9 @@
 				}
 				expiresAt = Date.now() + (Math.max(0, Number(data.expires_in) || 0) * 1000);
 				if (countdown) {
-					status.textContent = messages.waiting || 'Waiting for your call…';
+					status.textContent = unified && document.documentElement.lang.startsWith('fa')
+						? 'در انتظار تماس شما…'
+						: (messages.waiting || 'Waiting for your call…');
 				}
 				updateCountdown(expectedGeneration);
 				showStep('code');
@@ -450,6 +477,23 @@
 				showError(startError.message);
 			}
 		});
+
+		if (unified) {
+			addIcon(codeTitle, 'keypad');
+			addIcon(dial, 'phone');
+			addIcon(cancel, 'back');
+			window.DigitalogicCallLogin = {
+				start(value) {
+					if (!widget.isConnected || widget.dataset.callAvailable !== 'true'
+						|| !widget.closest('.dg-digits-login-shell') || !/^\+[1-9]\d{7,14}$/.test(value)) { return false; }
+					if (!start.disabled) {
+						phone.value = value;
+						start.click();
+					}
+					return true;
+				}
+			};
+		}
 
 		cancel?.addEventListener('click', async () => {
 			stopPolling();

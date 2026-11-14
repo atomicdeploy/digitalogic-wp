@@ -63,6 +63,15 @@ function parseAreaCode(value) {
 	return value;
 }
 
+function normalizeCallerNumber(value, options) {
+	const national = normalizeIranNumber(value, options);
+	if (national || typeof value !== 'string') {
+		return national;
+	}
+	const explicit = value.trim().replace(/^00/, '+');
+	return /^\+(?!98)[1-9]\d{7,14}$/.test(explicit) ? explicit : null;
+}
+
 function validateSixDigitCode(value) {
 	return typeof value === 'string' && /^[1-9]\d{5}$/.test(value);
 }
@@ -285,7 +294,7 @@ function buildPayload(config, call) {
 	if (!validateEventId(call.eventId) || !validateCallId(call.callId)
 		|| !validateSixDigitCode(call.code)
 		|| normalizeIranNumber(call.calledNumber) !== config.expectedDid
-		|| !normalizeIranNumber(call.callerNumber)) {
+		|| !normalizeCallerNumber(call.callerNumber)) {
 		throw new Error('Invalid callback payload input');
 	}
 	return {
@@ -303,7 +312,7 @@ function buildPayload(config, call) {
 function buildPendingPayload(config, call) {
 	if (!validateEventId(call.eventId) || !validateCallId(call.callId)
 		|| normalizeIranNumber(call.calledNumber) !== config.expectedDid
-		|| !normalizeIranNumber(call.callerNumber)) {
+		|| !normalizeCallerNumber(call.callerNumber)) {
 		throw new Error('Invalid pending payload input');
 	}
 	return {
@@ -671,7 +680,7 @@ async function runAgi(dependencies = {}) {
 			allowZeroCountryPrefix: config.allowZeroCountryPrefixDid,
 			localAreaCode: config.didLocalAreaCode,
 		});
-		const callerNumber = normalizeIranNumber(rawAni, {
+		const callerNumber = normalizeCallerNumber(rawAni, {
 			allowBareNsn: config.allowBareAni,
 			allowZeroCountryPrefix: config.allowZeroCountryPrefixAni,
 			localAreaCode: config.aniLocalAreaCode,
@@ -804,6 +813,7 @@ module.exports = {
 	classifyPendingResponse,
 	loadConfig,
 	normalizeIranNumber,
+	normalizeCallerNumber,
 	postVerification,
 	postPending,
 	runAgi,

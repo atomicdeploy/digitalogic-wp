@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
+const phoneNumbers = require('../assets/vendor/libphonenumber-js/libphonenumber-max.js');
 
 const brandingSource = fs.readFileSync(
     path.join(__dirname, '..', 'assets', 'js', 'branding', 'admin-branding.js'),
@@ -111,6 +112,7 @@ function createHarness(options) {
     };
     const window = {
         DigitalogicBranding: config,
+        libphonenumber: options.phoneNumbers,
         URL,
         location: { href: options.locationHref || 'https://digitalogic.test/login/' }
     };
@@ -253,8 +255,9 @@ test('skip password selects the native SMS tab without sending the typed passwor
     const primary = {after: (node) => { action = node; }};
     const form = {
         dataset: {},
+        classList: fakeClassList(),
         querySelector: (selector) => selector === '.digits-form_tab_wrapper' ? wrapper : primary,
-        querySelectorAll: (selector) => selector.includes('sms_otp') ? [] : [password],
+        querySelectorAll: (selector) => selector.includes('_otp') ? [] : [password],
         addEventListener() {}
     };
     harness.document.createElement = createElement;
@@ -339,7 +342,7 @@ test('ordinary Enter remains ordinary when a secondary SMS button exists', () =>
     harness.window.clearTimeout=()=>{};
     harness.document.addEventListener=(name,callback)=>{listeners[name]=callback;};
     const skip={click(){skipClicks++;}};
-    const form={dataset:{},matches:()=>true,querySelector:()=>skip,querySelectorAll:()=>[],checkValidity(){validityChecks++;return false;}};
+    const form={dataset:{},matches:()=>true,closest:()=>null,querySelector:()=>skip,querySelectorAll:()=>[],checkValidity(){validityChecks++;return false;}};
     harness.hooks.bindLoadingStates();
     listeners.submit({target:form,submitter:{matches:()=>false},preventDefault(){}});
     assert.equal(skipClicks,0);
@@ -516,6 +519,23 @@ test('one canonical identity normalizer handles Persian and Arabic digits withou
     assert.equal(phone.national, '9123456789');
     assert.equal(phone.countryCode, '+98');
     assert.equal(phone.valid, true);
+});
+
+test('phone verification uses the national numbering plan and preserves international prefixes', () => {
+    const { hooks } = createHarness({ phoneNumbers });
+    const cases = [
+        ['۰۲۱۱۲۳۴۵۶۷۸', '+98', 'FIXED_LINE', '+982112345678'],
+        ['09120000000', '+98', 'MOBILE', '+989120000000'],
+        ['00442079460018', '+98', 'FIXED_LINE', '+442079460018'],
+        ['02079460018', '+44', 'FIXED_LINE', '+442079460018'],
+        ['+12025550123', '+98', 'FIXED_LINE_OR_MOBILE', '+12025550123']
+    ];
+    for (const [input, country, kind, e164] of cases) {
+        const phone = hooks.phonePartsFromValue(input, country);
+        assert.equal(phone.kind, kind, input);
+        assert.equal(phone.e164, e164, input);
+    }
+    assert.equal(hooks.phonePartsFromValue('021', '+98').valid, false);
 });
 
 test('password visibility restoration preserves the user-selected range and direction', () => {

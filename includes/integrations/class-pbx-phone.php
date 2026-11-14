@@ -132,7 +132,11 @@ final class Digitalogic_PBX_Phone {
 			return '';
 		}
 
-		$value = trim( self::ascii_digits( (string) $value ) );
+		$value         = trim( self::ascii_digits( (string) $value ) );
+		$international = self::normalize_international( $value );
+		if ( '' !== $international ) {
+			return $international;
+		}
 		if ( 1 === preg_match( '/^[0-9]{8}$/', $value ) ) {
 			return self::normalize( '021' . $value );
 		}
@@ -148,6 +152,18 @@ final class Digitalogic_PBX_Phone {
 		}
 
 		return self::normalize( $value );
+	}
+
+	/**
+	 * Accept explicit international E.164 without changing national PBX routing rules.
+	 *
+	 * @param string $value International number.
+	 */
+	public static function normalize_international( string $value ): string {
+		if ( str_starts_with( $value, '00' ) ) {
+			$value = '+' . substr( $value, 2 );
+		}
+		return ! str_starts_with( $value, '+98' ) && 1 === preg_match( '/^\+[1-9][0-9]{7,14}$/D', $value ) ? $value : '';
 	}
 
 	/**

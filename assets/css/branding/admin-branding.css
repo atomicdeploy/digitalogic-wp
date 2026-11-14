@@ -606,7 +606,7 @@ body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .digits-form_h
     color: var(--dg-heading) !important;
 }
 
-body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_heading_text, .dg-recovery-heading) {
+body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) :is(.digits-form_heading_text, .dg-recovery-heading, .dg-otp-heading) {
     color: var(--dg-heading) !important;
     font-size: clamp(28px, 5vw, 36px) !important;
     font-weight: 800 !important;
@@ -1080,7 +1080,6 @@ body.login .dg-digits-login-shell .dg-passwordless-action > .dg-skip-password {
     display: flex;
     align-items: center;
     justify-content: center;
-    column-gap: 10px;
     box-sizing: border-box;
     inline-size: 100%;
     min-block-size: 56px;
@@ -1207,8 +1206,14 @@ body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .dg-otp-editor
 }
 
 body.login .dg-otp-slot {
+    display: block;
     position: relative;
     min-width: 0;
+}
+body.login .digits-form_input:has(> .dg-otp-editor) {
+    display: block !important;
+    inline-size: 100% !important;
+    min-inline-size: 0;
 }
 
 body.login :is(.dg-digits-login-shell, .dg-digits-register-shell) .dg-otp-editor .dg-otp-slot input {
@@ -1866,12 +1871,14 @@ body.login .dg-digits-login-shell .dg-passkey-options[open] > .digits-form_passw
     background: var(--dg-panel-soft) !important;
     color: var(--dg-text) !important;
     box-shadow: none !important;
-    position: relative;
 }
-body.login .dg-digits-login-shell .dg-passkey-options > .digits-form_passwordless_login > .dg-auth-icon {
-    position: absolute;
-    inset-inline-start: 18px;
-    inset-block-start: calc(50% - 10px);
+body.login .dg-digits-login-shell .dg-icon-label-action {
+    align-items: center;
+    justify-content: center;
+    column-gap: 10px;
+}
+body.login .dg-digits-login-shell .dg-icon-label-action > .dg-auth-icon {
+    position: static;
 }
 body.login .dg-digits-login-shell .dg-passkey-options[open] > .digits-form_passwordless_login:hover {
     border-color: var(--dg-border-strong) !important;
@@ -1958,6 +1965,141 @@ body.login .dg-digits-login-shell .dg-sms-identity-help {
     font-size: 13px;
     line-height: 1.7;
 }
+body.login .dg-phone-channels:not([hidden]) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 12px;
+    padding: 0;
+    border: 0;
+}
+body.login .dg-phone-channels legend {
+    margin-block-end: 5px;
+    color: var(--dg-text-soft);
+}
+body.login .dg-phone-channels label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-block-size: 42px;
+    padding-inline: 12px;
+    border: 1px solid var(--dg-border);
+    border-radius: 12px;
+    cursor: pointer;
+}
+body.login .dg-phone-channels label:has(:checked) {
+    border-color: var(--dg-accent-strong);
+    background: var(--dg-accent-soft);
+}
+body.login .dg-phone-channels input {
+    margin: 0 !important;
+}
+body.login .dg-digits-login-shell.dg-call-code-active > .digits-form_container,
+body.login .dg-digits-login-shell:not(.dg-call-code-active) > .dg-call-unified,
+body.login .dg-call-unified [hidden] {
+    display: none !important;
+}
+body.login .dg-digits-login-shell > .dg-call-unified {
+    box-sizing: border-box;
+    width: 100%;
+    min-inline-size: 0;
+    margin: 0;
+    padding: clamp(20px, 4vw, 40px);
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+body.login .dg-digits-login-shell .dg-call-unified :is(.digitalogic-call-panel, .digitalogic-call-instructions) {
+    width: auto;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+body.login .dg-otp-step .digits-social-logins-box {
+    display: none !important;
+}
+body.login form:not(.dg-otp-step) .dg-otp-heading,
+body.login .dg-otp-step .digits-form_heading:has(.dg-otp-heading) > :is(.digits-form_heading_text, .dg-recovery-heading) {
+    display: none !important;
+}
+body.login .dg-otp-instructions {
+    margin: 0 0 8px;
+    color: var(--dg-text-soft);
+    font: 500 14px/1.65 var(--dg-font, system-ui, sans-serif);
+}
+body.login .dg-otp-step .digits-form_input_row:has(.dg-otp-editor) {
+    padding-inline: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+}
+body.login .dg-otp-step .digits-form_resend_otp {
+    display: flex;
+    width: fit-content;
+    margin-inline: auto;
+}
+body.login .dg-otp-step .digits-form_resend_otp:not(.dg-otp-resend) {
+    min-block-size: 42px;
+    padding: 4px 14px;
+    border: 1px solid var(--dg-border);
+    border-radius: 999px;
+    background: var(--dg-panel-strong);
+    color: var(--dg-accent-strong);
+    font: 700 14px/1.65 var(--dg-font, system-ui, sans-serif);
+}
+body.login .dg-call-unified .digitalogic-call-instructions:not([hidden]) {
+    display: grid;
+    gap: 12px;
+}
+body.login .dg-call-unified :is(h2, p) {
+    margin: 0;
+    line-height: 1.65;
+}
+body.login .dg-call-unified .dg-call-code-slots {
+    --dg-otp-count: 6;
+}
+body.login .dg-call-code-digit {
+    display: grid;
+    place-items: center;
+    min-block-size: 48px;
+    border: 1px solid var(--dg-border);
+    border-radius: 12px;
+    background: var(--dg-input-bg);
+    color: var(--dg-heading);
+    font: 700 22px/1 var(--dg-auth-digits, var(--dg-font));
+    font-variant-numeric: tabular-nums;
+}
+body.login .dg-call-wait,
+body.login .dg-call-dial,
+body.login .dg-call-unified .dg-auth-back {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+body.login .dg-call-wait {
+    justify-content: space-between;
+    color: var(--dg-text-soft);
+}
+body.login .dg-call-dial {
+    justify-content: center;
+    min-block-size: 56px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, var(--dg-accent), var(--dg-accent-strong));
+    color: #fff !important;
+    text-decoration: none;
+    font-weight: 800;
+}
+body.login .dg-call-unified .digitalogic-call-icon {
+    inline-size: 20px;
+    block-size: 20px;
+    flex: 0 0 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+}
+body.login .dg-call-unified .digitalogic-call-icon--back {
+    transform: scaleX(var(--dg-forward-arrow, 1));
+}
 body.login .dg-digits-login-shell[data-dg-auth-mode="signup"] :is(.digits-form_tabs, .digits-form_tab-bar):has(.digits-form_tab-item[data-value="phone"], .digits-form_tab-item[data-value="email"]) {
     display: none !important;
 }
@@ -2008,9 +2150,6 @@ body.login .dg-digits-login-shell .dg-passkey-options .digitalogic-call-toggle {
     line-height: 1.4 !important;
     background: var(--dg-panel-soft);
     white-space: normal;
-}
-body.login .dg-digits-login-shell .dg-passkey-options[open] > .digits-form_passwordless_login {
-    padding-inline: 42px !important;
 }
 body.login .dg-digits-login-shell form:not(.digits_form_index_section) .dg-passkey-options[open] > .digits-form_passwordless_login,
 body.login .dg-digits-login-shell form.dg-username-step-active .dg-passkey-options[open] > .digits-form_passwordless_login {

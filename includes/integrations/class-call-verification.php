@@ -444,9 +444,13 @@ final class Digitalogic_Call_Verification {
 			return new WP_Error( 'digitalogic_call_login_required', __( 'Please sign in before adding a contact.', 'digitalogic' ), array( 'status' => 401 ) );
 		}
 
-		$phone = Digitalogic_PBX_Phone::normalize( $request->get_param( 'phone' ) );
+		$raw_phone = $request->get_param( 'phone' );
+		$phone     = Digitalogic_PBX_Phone::normalize( $raw_phone );
+		if ( '' === $phone && 'login' === $purpose && is_string( $raw_phone ) ) {
+			$phone = Digitalogic_PBX_Phone::normalize_international( $raw_phone );
+		}
 		if ( '' === $phone ) {
-			return new WP_Error( 'digitalogic_call_phone', __( 'Enter a valid Iranian mobile or landline number with its area code.', 'digitalogic' ), array( 'status' => 400 ) );
+			return new WP_Error( 'digitalogic_call_phone', __( 'Enter a valid phone number with its area code.', 'digitalogic' ), array( 'status' => 400 ) );
 		}
 
 		$binding = $this->browser_binding();
@@ -1571,37 +1575,24 @@ final class Digitalogic_Call_Verification {
 		$this->render_branded_login_widget();
 	}
 
-	/** Render the two call verification steps in the branded login card. */
+	/** Render call instructions for the shared verification stage. */
 	private function render_branded_login_widget(): void {
+		$persian = str_starts_with( strtolower( determine_locale() ), 'fa' );
 		?>
-		<section class="digitalogic-call-verification" data-digitalogic-call-widget data-purpose="login">
-			<button type="button" id="digitalogic-login-call-toggle" class="button digitalogic-call-toggle" aria-expanded="false" aria-controls="digitalogic-login-call-panel"><?php esc_html_e( 'Verify by calling', 'digitalogic' ); ?></button>
-			<div class="digitalogic-call-panel digitalogic-call-panel--branded" id="digitalogic-login-call-panel" role="region" aria-labelledby="digitalogic-call-entry-title" hidden>
-				<div class="digitalogic-call-entry" data-call-entry>
-					<h2 class="digitalogic-call-step-title" id="digitalogic-call-entry-title"><?php esc_html_e( 'Verify by calling', 'digitalogic' ); ?></h2>
-					<div class="digitalogic-call-entry-field">
-						<label for="digitalogic-login-call-phone"><?php esc_html_e( 'Mobile or landline number', 'digitalogic' ); ?></label>
-						<div class="digitalogic-call-phone-field">
-							<input type="tel" id="digitalogic-login-call-phone" inputmode="tel" autocomplete="tel" autocorrect="off" spellcheck="false" dir="ltr" maxlength="32" data-call-phone aria-describedby="digitalogic-login-call-phone-help" placeholder="021 1234 5678">
-						</div>
-						<p class="digitalogic-call-hint" id="digitalogic-login-call-phone-help"><?php esc_html_e( 'Include the area code for landlines.', 'digitalogic' ); ?></p>
-						<p class="digitalogic-call-error" id="digitalogic-login-call-error" data-call-error role="alert" hidden></p>
-					</div>
-					<button type="button" class="button button-primary" data-call-start><?php esc_html_e( 'Create call code', 'digitalogic' ); ?></button>
-					<button type="button" class="button digitalogic-call-back" data-call-back><?php esc_html_e( 'Back to sign in', 'digitalogic' ); ?></button>
-				</div>
+		<section class="digitalogic-call-verification dg-call-unified" data-digitalogic-call-widget data-call-unified data-purpose="login" data-call-available="<?php echo esc_attr( defined( 'DIGITALOGIC_PUBLIC_CALL_VERIFICATION' ) && DIGITALOGIC_PUBLIC_CALL_VERIFICATION ? 'true' : 'false' ); ?>">
+			<input type="hidden" data-call-phone>
+			<button type="button" data-call-start hidden></button>
+			<p data-call-error hidden></p>
+			<div class="digitalogic-call-panel" role="region" aria-labelledby="digitalogic-call-code-title" hidden>
 				<div class="digitalogic-call-instructions" data-call-instructions hidden>
-					<h2 class="digitalogic-call-step-title" id="digitalogic-call-code-title" tabindex="-1" data-call-code-title><?php esc_html_e( 'Your call code', 'digitalogic' ); ?></h2>
-					<p class="digitalogic-call-hint"><?php esc_html_e( 'Call from the same number you entered. When you hear «دوست عزیزم», enter the code using your phone keypad.', 'digitalogic' ); ?></p>
-					<output class="digitalogic-call-code" data-call-code dir="ltr"></output>
-					<div class="digitalogic-call-status">
-						<p data-call-status role="status"><?php esc_html_e( 'Waiting for your call…', 'digitalogic' ); ?></p>
-						<span data-call-countdown role="timer" dir="ltr"></span>
-					</div>
-					<a class="button button-primary digitalogic-call-dial" data-call-dial href="tel:<?php echo esc_attr( self::DIAL_TEL ); ?>" aria-label="<?php esc_attr_e( 'Call Digitalogic', 'digitalogic' ); ?>">
+					<h2 class="digits-form_heading" id="digitalogic-call-code-title" tabindex="-1" data-call-code-title><?php echo esc_html( $persian ? 'کد تأیید' : 'Verification code' ); ?></h2>
+					<p><?php echo esc_html( $persian ? 'از همان شماره‌ای که وارد کردید با دیجیتالاجیک تماس بگیرید و کد زیر را با صفحه‌کلید تلفن وارد کنید.' : 'Call Digitalogic from the number you entered, then enter this code on your phone keypad.' ); ?></p>
+					<output data-call-code dir="ltr"></output>
+					<div class="dg-call-wait"><p data-call-status role="status"><?php echo esc_html( $persian ? 'در انتظار تماس شما…' : 'Waiting for your call…' ); ?></p><span data-call-countdown role="timer" dir="ltr"></span></div>
+					<a class="dg-call-dial" data-call-dial href="tel:<?php echo esc_attr( self::DIAL_TEL ); ?>" aria-label="<?php echo esc_attr( $persian ? 'تماس با دیجیتالاجیک' : 'Call Digitalogic' ); ?>">
 						<span data-call-dial-number dir="ltr"><?php echo esc_html( self::DIAL_DISPLAY ); ?></span>
 					</a>
-					<button type="button" class="button digitalogic-call-back" data-call-cancel><?php esc_html_e( 'Edit phone number', 'digitalogic' ); ?></button>
+					<button type="button" class="dg-auth-back" data-call-cancel><span><?php echo esc_html( $persian ? 'ویرایش شماره تلفن' : 'Edit phone number' ); ?></span></button>
 				</div>
 			</div>
 		</section>
@@ -2175,7 +2166,9 @@ final class Digitalogic_Call_Verification {
 
 		$national     = Digitalogic_PBX_Phone::to_national( $phone );
 		$significant  = substr( $phone, 3 );
-		$values       = array_values( array_unique( array( $phone, '98' . $significant, $national, $significant ) ) );
+		$values       = str_starts_with( $phone, '+98' )
+			? array_values( array_unique( array( $phone, '98' . $significant, $national, $significant ) ) )
+			: array( $phone, substr( $phone, 1 ), '00' . substr( $phone, 1 ) );
 		$placeholders = implode( ',', array_fill( 0, count( $values ), '%s' ) );
 		// This lookup runs only after live PBX proof and is restricted to
 		// explicit authentication identities. WooCommerce billing/order phone
@@ -2215,7 +2208,7 @@ final class Digitalogic_Call_Verification {
 	 * @return int[]
 	 */
 	private static function consistent_digits_user_ids( array $rows, string $phone ): array {
-		$phone = Digitalogic_PBX_Phone::normalize( $phone );
+		$phone = Digitalogic_PBX_Phone::normalize( $phone ) ?: Digitalogic_PBX_Phone::normalize_international( $phone );
 		if ( '' === $phone ) {
 			return array();
 		}
@@ -2236,7 +2229,9 @@ final class Digitalogic_Call_Verification {
 				);
 			}
 
-			$normalized = self::normalize_digits_phone_meta( $value );
+			$normalized = str_starts_with( $phone, '+98' )
+				? self::normalize_digits_phone_meta( $value )
+				: Digitalogic_PBX_Phone::normalize_international( preg_match( '/^[1-9][0-9]+$/D', $value ) ? '+' . $value : $value );
 			if ( '' === $normalized ) {
 				$identities[ $user_id ]['invalid'] = true;
 				continue;
