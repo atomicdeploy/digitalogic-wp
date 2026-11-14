@@ -132,16 +132,16 @@ async function checkVerificationLabels(page, labels) {
     const phone = page.locator('input[name="digits_phone"]');
     const email = page.locator('input[name="digits_email"]');
     const primary = page.locator('.digits-form_login > .digits-form_submit-btn');
-    for (const [field, value, expected] of [
+    for (const [field, value, expected, isPhone] of [
         [phone, '', 'Continue'],
         [phone, 'sample-user', 'Continue'],
-        [phone, '۰۹۱۲', 'Continue'],
-        [phone, '۰۹۱۲۰۰۰۰۰۰۰', labels.sendSmsCode],
-        [phone, '۰۲۱۱۲۳۴۵۶۷۸', 'Continue'],
-        [phone, '+442079460018', 'Continue'],
-        [phone, '+12025550123', 'Continue'],
-        [phone, '+448001111', 'Continue'],
-        [phone, '+989120000000', labels.sendSmsCode],
+        [phone, '۰۹۱۲', 'Continue', true],
+        [phone, '۰۹۱۲۰۰۰۰۰۰۰', labels.sendSmsCode, true],
+        [phone, '۰۲۱۱۲۳۴۵۶۷۸', 'Continue', true],
+        [phone, '+442079460018', 'Continue', true],
+        [phone, '+12025550123', 'Continue', true],
+        [phone, '+448001111', 'Continue', true],
+        [phone, '+989120000000', labels.sendSmsCode, true],
         [phone, 'demo@', 'Continue'],
         [email, 'demo@example.com', labels.sendEmailCode],
         [email, 'demo', 'Continue'],
@@ -149,7 +149,7 @@ async function checkVerificationLabels(page, labels) {
     ]) {
         await field.fill(value);
         assert.equal(await primary.innerText(), expected, value || '(empty identity)');
-        await checkIdentityPrompt(page, labels.contactPlaceholder);
+        await checkIdentityPrompt(page, isPhone ? labels.phonePlaceholder : labels.contactPlaceholder);
     }
     await phone.fill('09120000000');
     assert.equal(await primary.innerText(), labels.sendSmsCode);
@@ -236,6 +236,7 @@ async function checkOtpEditor(page, channel) {
                 skipPassword, skipPasswordCaption,
                 identityPlaceholder: direction === 'rtl' ? 'نام کاربری، ایمیل یا شماره تلفن' : 'Username, email, or phone number',
                 contactPlaceholder: direction === 'rtl' ? 'ایمیل یا شماره تلفن' : 'Email address or phone number',
+                phonePlaceholder: direction === 'rtl' ? 'شماره تلفن' : 'Phone number',
                 showPassword: direction === 'rtl' ? 'نمایش رمز عبور' : 'Show password',
                 hidePassword: direction === 'rtl' ? 'پنهان کردن رمز عبور' : 'Hide password',
                 requiredPassword: direction === 'rtl' ? 'رمز عبور را وارد کنید.' : 'Enter your password.',
@@ -248,6 +249,11 @@ async function checkOtpEditor(page, channel) {
                 await render(page, direction, labels, native);
                 await checkAlternatives(page, !native);
                 if (!native) {
+                    await checkIdentityPrompt(page, labels.identityPlaceholder);
+                    const identity = page.locator('input[name="digits_phone"]');
+                    await identity.fill('۰۹۱۲');
+                    await checkIdentityPrompt(page, labels.phonePlaceholder);
+                    await identity.fill('');
                     await checkIdentityPrompt(page, labels.identityPlaceholder);
                     await page.locator('.dg-passkey-options summary').click();
                     await checkIconAndLabel(page.getByRole('button', { name: labels.passkeyLogin, exact: true }), direction);
@@ -298,7 +304,7 @@ async function checkOtpEditor(page, channel) {
                     await checkVerificationLabels(page, labels);
                     await page.locator('.dg-auth-back').click();
                     await checkAlternatives(page, true);
-                    await checkIdentityPrompt(page, labels.identityPlaceholder);
+                    await checkIdentityPrompt(page, labels.phonePlaceholder);
                     assert.equal(await page.locator('.dg-auth-back').isVisible(), false);
                     assert.equal(await page.locator('.digits-form_tab_container').count(), 1, 'Digits must have only the identity tab after returning');
                     await page.locator('input[name="digits_phone"]').fill('known-user');

@@ -1333,13 +1333,18 @@
         }
     }
 
-    function setDigitsIdentityPrompt(form, contactOnly) {
+    function setDigitsIdentityPrompt(form, mode) {
+        var contactOnly = form.dataset.dgSmsIdentity === 'true' || form.closest('[data-dg-recovery]');
         var prompt = contactOnly
             ? getLabel('contactPlaceholder', 'Email address or phone number')
             : getLabel('identityPlaceholder', 'Username, email, or phone number');
         form.querySelectorAll('input:is([name="digits_phone"], [name="digits_email"])').forEach(function (input) {
-            input.placeholder = prompt;
-            input.setAttribute('aria-label', prompt);
+            // An empty verification field still accepts either email or phone.
+            var label = mode === 'phone' && input.name === 'digits_phone' && (!contactOnly || input.value)
+                ? getLabel('phonePlaceholder', 'Phone number')
+                : prompt;
+            input.placeholder = label;
+            input.setAttribute('aria-label', label);
         });
     }
 
@@ -1349,7 +1354,6 @@
         var back = form.querySelector('.dg-username-password-step:not([hidden]) .dg-username-login-back, .digits_form_back:not(.digits_hide_back)');
         if (back) { back.click(); }
         form.dataset.dgSmsIdentity = 'true';
-        setDigitsIdentityPrompt(form, true);
         if (email) {
             selectDigitsMode('email', false);
             updateVerificationAction(form);
@@ -1439,7 +1443,7 @@
 
             if (form.dataset.dgSmsIdentity === 'true' && !form.classList.contains('digits_form_index_section')) {
                 delete form.dataset.dgSmsIdentity;
-                setDigitsIdentityPrompt(form, Boolean(form.closest('[data-dg-recovery]')));
+                setDigitsIdentityPrompt(form, form.closest('.dg-digits-login-shell')?.dataset.dgIdentity);
                 var help = form.querySelector('.dg-sms-identity-help');
                 if (help) { help.hidden = true; }
                 primary.querySelector('.digits-form_button-text').textContent = getLabel('continue', 'Continue');
@@ -2646,6 +2650,8 @@
         }
 
         shell.dataset.dgIdentity = nextMode;
+        var form = phoneInput?.form || emailInput?.form;
+        if (form) { setDigitsIdentityPrompt(form, nextMode); }
         [phoneInput, emailInput].filter(Boolean).forEach(function (input) {
             var holder = input.closest('.digits-form_input');
             if (!holder) { return; }
@@ -2961,7 +2967,6 @@
         emailInput.dir = 'ltr';
         emailInput.type = 'text';
         emailInput.inputMode = 'email';
-        setDigitsIdentityPrompt(phoneInput.form, false);
         var updateEmailFeedback = bindEmailDomainFeedback(emailInput);
         var login = phoneInput.form;
         var channels = document.createElement('fieldset');
@@ -3154,7 +3159,6 @@
             authRecovery = false;
             delete shell.dataset.dgRecovery;
             delete login.dataset.dgSmsIdentity;
-            setDigitsIdentityPrompt(login, false);
             login.querySelector('.dg-recovery-heading')?.remove();
             if (pageHeading) { pageHeading.textContent = signInTitle; }
             var help = login.querySelector('.dg-sms-identity-help');
