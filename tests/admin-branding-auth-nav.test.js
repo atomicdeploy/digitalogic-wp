@@ -225,42 +225,61 @@ test('client validation rejection does not schedule a misleading registration ti
 test('skip password selects the native SMS tab without sending the typed password', () => {
     let update;
     const harness = createHarness({
-        labels: {skipPassword: 'ادامه بدون رمز عبور'},
+        labels: {skipPassword: 'ورود بدون رمز عبور', skipPasswordCaption: 'فراموشی رمز عبور'},
         MutationObserver: class {
             constructor(callback) { update = callback; }
             observe() {}
         }
     });
     const listeners = {};
-    const skip = {addEventListener: (name, callback) => { listeners[name] = callback; }};
+    const createElement = (tagName) => ({
+        tagName,
+        children: [],
+        attributes: new Map(),
+        classList: fakeClassList(),
+        addEventListener(name, callback) { listeners[name] = callback; },
+        setAttribute(name, value) { this.attributes.set(name, value); },
+        querySelector() { return null; },
+        append(...children) { this.children.push(...children); },
+        appendChild(child) { this.append(child); },
+        prepend(child) { this.children.unshift(child); }
+    });
     const wrapper = {};
     let smsClicks = 0;
     const otpTab = {click: () => { smsClicks++; }};
     const step = {querySelector: (selector) => selector.includes('data-value') ? otpTab : {}};
     const password = {value: 'test-input', offsetWidth: 0, getClientRects: () => [], closest: () => step};
-    const primary = {after: (button) => assert.equal(button, skip)};
+    let action;
+    const primary = {after: (node) => { action = node; }};
     const form = {
         dataset: {},
         querySelector: (selector) => selector === '.digits-form_tab_wrapper' ? wrapper : primary,
         querySelectorAll: (selector) => selector.includes('sms_otp') ? [] : [password],
         addEventListener() {}
     };
-    harness.document.createElement = () => skip;
+    harness.document.createElement = createElement;
+    harness.document.createElementNS = (namespaceURI, tag) => ({...createElement(tag), namespaceURI});
     harness.window.addEventListener = () => {};
     harness.document.querySelectorAll = (selector) => selector === '.dg-digits-login-shell form' ? [form] : [];
     harness.hooks.normalizeAuthChrome();
+    const [skip, caption] = action.children;
+    const [icon, label] = skip.children;
     assert.equal(skip.type, 'button');
-    assert.equal(skip.textContent, 'ادامه بدون رمز عبور');
-    assert.equal(skip.hidden, true);
+    assert.equal(icon.tagName, 'svg');
+    assert.equal(label.textContent, 'ورود بدون رمز عبور');
+    assert.equal(caption.tagName, 'p');
+    assert.equal(caption.textContent, 'فراموشی رمز عبور');
+    assert.equal(skip.attributes.get('aria-describedby'), caption.id);
+    assert.equal(action.hidden, true);
     password.offsetWidth = 200;
     update();
-    assert.equal(skip.hidden, false);
+    assert.equal(action.hidden, false);
     listeners.click();
     assert.equal(password.value, '');
     assert.equal(smsClicks, 1);
     password.disabled = true;
     update();
-    assert.equal(skip.hidden, true);
+    assert.equal(action.hidden, true);
 });
 
 test('WebOTP can receive the code before the SMS response and submits once the Digits field is ready', async () => {

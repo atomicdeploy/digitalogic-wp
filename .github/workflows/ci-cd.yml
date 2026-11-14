@@ -123,6 +123,14 @@ jobs:
         fi
         "$visudo_bin" -cf "$sudoers_candidate"
 
+    - name: Check passwordless login in Chromium
+      run: |
+        browser_tools="$(mktemp -d)"
+        trap 'rm -rf "$browser_tools"' EXIT
+        npm install --prefix "$browser_tools" --no-audit --no-fund playwright-core@1.65.0
+        "$browser_tools/node_modules/.bin/playwright-core" install --with-deps chromium
+        NODE_PATH="$browser_tools/node_modules" node tests/passwordless-action.browser.cjs
+
     - name: Reject non-synthetic mobile fixtures
       run: |
         python - <<'PY'
